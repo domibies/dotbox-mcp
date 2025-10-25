@@ -63,6 +63,24 @@ This creates a much better visual experience compared to showing code only in th
 
 **Exception:** For very simple one-liners (like `Console.WriteLine("Hello");`), you may skip the artifact and execute directly.
 
+**OUTPUT VISUALIZATION:**
+After receiving execution results, create artifacts to visualize output:
+- **Text output:** Create a text artifact (preserves formatting, ASCII art, tables, etc.)
+- **JSON output:** Create an artifact with JSON syntax highlighting
+- **HTML/SVG output:** Create an HTML artifact to render it
+- **Structured data (CSV, XML, etc.):** Use appropriate syntax highlighting in artifacts
+
+This ensures formatting is preserved and content is displayed clearly.
+
+**WHEN TO USE MULTI-STEP WORKFLOW INSTEAD:**
+This tool is for quick, one-shot code execution. If the user needs:
+- **File creation/extraction:** Use the project workflow (dotnet_create_project, etc.)
+- **Web servers/APIs:** Use the project workflow with hosting tools
+- **Multi-file projects:** Use the project workflow
+- **Persistent containers:** Use the project workflow
+
+Guide users to the appropriate workflow based on their needs.
+
 **What this tool does:**
 Creates a temporary .NET project, builds it, executes the code, and returns the output.
 The container is automatically cleaned up after execution.
