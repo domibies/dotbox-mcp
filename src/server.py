@@ -112,92 +112,68 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
             timeout=30,
         )
 
-        # Format response
+        # Format response in human-readable format
         if result["success"]:
             # Success case
-            formatted_output = fmt.format_execution_output(
-                stdout=result["stdout"],
-                stderr=result["stderr"],
-                exit_code=result["exit_code"],
-                detail_level=input_data.detail_level,
-            )
+            output = result["stdout"] if result["stdout"] else result["stderr"]
 
-            response = fmt.format_json_response(
+            response = fmt.format_human_readable_response(
                 status="success",
-                data={
-                    "output": formatted_output,
-                    "exit_code": result["exit_code"],
-                },
-                metadata={
-                    "dotnet_version": input_data.dotnet_version.value,
-                    "detail_level": input_data.detail_level.value,
-                },
+                output=output,
+                exit_code=result["exit_code"],
+                dotnet_version=input_data.dotnet_version.value,
             )
 
         else:
             # Build or execution error
-            formatted_output = fmt.format_execution_output(
+            error_output = fmt.format_execution_output(
                 stdout=result["stdout"],
                 stderr=result["stderr"],
                 exit_code=result["exit_code"],
                 detail_level=DetailLevel.FULL,  # Always show full errors
             )
 
-            response = fmt.format_json_response(
+            response = fmt.format_human_readable_response(
                 status="error",
-                error={
-                    "type": "ExecutionError" if not result["build_errors"] else "BuildError",
-                    "message": "Code execution failed"
-                    if not result["build_errors"]
-                    else "Build failed",
-                    "details": formatted_output,
-                    "build_errors": result["build_errors"],
-                },
-                metadata={
-                    "dotnet_version": input_data.dotnet_version.value,
-                },
+                error_message="Code execution failed"
+                if not result["build_errors"]
+                else "Build failed",
+                error_details=error_output,
+                build_errors=result["build_errors"],
+                dotnet_version=input_data.dotnet_version.value,
             )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
         # Input validation error
-        error_response = OutputFormatter().format_json_response(
+        error_response = OutputFormatter().format_human_readable_response(
             status="error",
-            error={
-                "type": "ValidationError",
-                "message": "Invalid input parameters",
-                "details": str(e),
-            },
+            error_message="Invalid input parameters",
+            error_details=str(e),
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
         # Docker not available
-        error_response = OutputFormatter().format_json_response(
+        error_response = OutputFormatter().format_human_readable_response(
             status="error",
-            error={
-                "type": "InfrastructureError",
-                "message": "Docker is not available",
-                "details": str(e),
-                "suggestions": [
-                    "Ensure Docker is installed and running",
-                    "Check Docker socket permissions",
-                    "Verify Docker images are built (run docker/build-images.sh)",
-                ],
-            },
+            error_message="Docker is not available",
+            error_details=str(e),
+            suggestions=[
+                "Ensure Docker is installed and running",
+                "Check Docker socket permissions",
+                "Verify Docker images are built (run docker/build-images.sh)",
+            ],
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
         # Unexpected error
-        error_response = OutputFormatter().format_json_response(
+        error_response = OutputFormatter().format_human_readable_response(
             status="error",
-            error={
-                "type": "UnexpectedError",
-                "message": "An unexpected error occurred",
-                "details": str(e),
-            },
+            error_message="An unexpected error occurred",
+            error_details=str(e),
         )
         return [TextContent(type="text", text=error_response)]
 

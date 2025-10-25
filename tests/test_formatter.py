@@ -184,3 +184,148 @@ class TestOutputFormatter:
 
         assert "Error occurred" in result
         assert "1" in result
+
+    def test_format_human_readable_success(self) -> None:
+        """Test human-readable success format."""
+        formatter = OutputFormatter()
+        result = formatter.format_human_readable_response(
+            status="success",
+            output="Hello World",
+            exit_code=0,
+            dotnet_version="8",
+        )
+
+        # Should contain success indicator
+        assert "✓" in result or "success" in result.lower()
+        # Should contain .NET version
+        assert "8" in result
+        # Should contain output
+        assert "Hello World" in result
+        # Should contain exit code
+        assert "0" in result
+
+    def test_format_human_readable_success_no_output(self) -> None:
+        """Test human-readable success format with no output."""
+        formatter = OutputFormatter()
+        result = formatter.format_human_readable_response(
+            status="success",
+            output="",
+            exit_code=0,
+            dotnet_version="9",
+        )
+
+        # Should indicate no output
+        assert "no output" in result.lower()
+        # Should still show version and exit code
+        assert "9" in result
+        assert "0" in result
+
+    def test_format_human_readable_error_with_build_errors(self) -> None:
+        """Test human-readable error format with build errors."""
+        formatter = OutputFormatter()
+        result = formatter.format_human_readable_response(
+            status="error",
+            error_message="Build failed",
+            error_details="Compilation errors occurred",
+            build_errors=[
+                "Program.cs(1,1): error CS0103: Name does not exist",
+                "Program.cs(2,5): error CS0246: Type not found",
+            ],
+            dotnet_version="8",
+        )
+
+        # Should contain error indicator
+        assert "✗" in result or "failed" in result.lower()
+        # Should contain error message
+        assert "Build failed" in result
+        # Should contain build errors
+        assert "CS0103" in result
+        assert "CS0246" in result
+        # Should use bullet points
+        assert "•" in result
+
+    def test_format_human_readable_error_with_suggestions(self) -> None:
+        """Test human-readable error format with suggestions."""
+        formatter = OutputFormatter()
+        result = formatter.format_human_readable_response(
+            status="error",
+            error_message="Docker not available",
+            error_details="Connection refused",
+            suggestions=[
+                "Ensure Docker is running",
+                "Check permissions",
+            ],
+        )
+
+        # Should contain suggestions section
+        assert "Suggestions:" in result or "suggestions" in result.lower()
+        # Should contain suggestion arrows
+        assert "→" in result
+        # Should contain suggestions
+        assert "Docker is running" in result
+        assert "permissions" in result
+
+    def test_format_human_readable_error_many_build_errors(self) -> None:
+        """Test that many build errors are limited."""
+        formatter = OutputFormatter()
+        build_errors = [f"Error {i}" for i in range(20)]
+
+        result = formatter.format_human_readable_response(
+            status="error",
+            error_message="Build failed",
+            build_errors=build_errors,
+        )
+
+        # Should contain first 10 errors
+        for i in range(10):
+            assert f"Error {i}" in result
+
+        # Should indicate more errors exist
+        assert "more" in result.lower() or "..." in result
+
+    def test_format_human_readable_enforces_character_limit(self) -> None:
+        """Test that human-readable format enforces character limit."""
+        formatter = OutputFormatter()
+
+        # Create very long output
+        long_output = "x" * 30000
+
+        result = formatter.format_human_readable_response(
+            status="success",
+            output=long_output,
+            exit_code=0,
+            dotnet_version="8",
+        )
+
+        # Should not exceed character limit
+        assert len(result) <= OutputFormatter.CHARACTER_LIMIT
+        # Should contain truncation message
+        assert "truncated" in result.lower()
+
+    def test_format_human_readable_with_separators(self) -> None:
+        """Test that output uses visual separators."""
+        formatter = OutputFormatter()
+        result = formatter.format_human_readable_response(
+            status="success",
+            output="Test output",
+            exit_code=0,
+            dotnet_version="8",
+        )
+
+        # Should contain separator lines
+        assert "─" in result or "-" in result
+
+    def test_format_human_readable_error_details(self) -> None:
+        """Test error details are shown in error response."""
+        formatter = OutputFormatter()
+        result = formatter.format_human_readable_response(
+            status="error",
+            error_message="Execution failed",
+            error_details="Stack trace:\nLine 1\nLine 2",
+        )
+
+        # Should contain details section
+        assert "Details:" in result or "details" in result.lower()
+        # Should contain the details
+        assert "Stack trace" in result
+        assert "Line 1" in result

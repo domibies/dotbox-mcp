@@ -53,6 +53,94 @@ class OutputFormatter:
 
         return combined
 
+    def format_human_readable_response(
+        self,
+        status: str,
+        output: str = "",
+        exit_code: int = 0,
+        dotnet_version: str = "",
+        error_type: str = "",
+        error_message: str = "",
+        error_details: str = "",
+        build_errors: list[str] | None = None,
+        suggestions: list[str] | None = None,
+    ) -> str:
+        """Format response in human-readable format.
+
+        Args:
+            status: Response status ("success" or "error")
+            output: Execution output
+            exit_code: Process exit code
+            dotnet_version: .NET version used
+            error_type: Type of error (if status is error)
+            error_message: Error message (if status is error)
+            error_details: Detailed error information
+            build_errors: List of build errors
+            suggestions: List of suggestions
+
+        Returns:
+            Human-readable formatted string
+        """
+        sections = []
+
+        if status == "success":
+            # Success header
+            sections.append(f"✓ Code executed successfully using .NET {dotnet_version}")
+            sections.append("")
+
+            # Output section
+            if output.strip():
+                sections.append("Output:")
+                sections.append("─" * 60)
+                sections.append(output.strip())
+                sections.append("─" * 60)
+            else:
+                sections.append("(no output)")
+
+            sections.append("")
+            sections.append(f"Exit code: {exit_code}")
+
+        else:
+            # Error header
+            sections.append(f"✗ Execution failed: {error_message}")
+            if dotnet_version:
+                sections.append(f"(.NET {dotnet_version})")
+            sections.append("")
+
+            # Build errors
+            if build_errors:
+                sections.append("Build Errors:")
+                sections.append("─" * 60)
+                for err in build_errors[:10]:  # Limit to first 10
+                    sections.append(f"  • {err}")
+                if len(build_errors) > 10:
+                    sections.append(f"  ... and {len(build_errors) - 10} more errors")
+                sections.append("─" * 60)
+                sections.append("")
+
+            # Error details
+            if error_details:
+                sections.append("Details:")
+                sections.append("─" * 60)
+                sections.append(error_details.strip())
+                sections.append("─" * 60)
+                sections.append("")
+
+            # Suggestions
+            if suggestions:
+                sections.append("Suggestions:")
+                for suggestion in suggestions:
+                    sections.append(f"  → {suggestion}")
+                sections.append("")
+
+        result = "\n".join(sections)
+
+        # Enforce character limit
+        if len(result) > self.CHARACTER_LIMIT:
+            result = self._truncate_to_char_limit(result, self.CHARACTER_LIMIT)
+
+        return result
+
     def format_json_response(
         self,
         status: str,
