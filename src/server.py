@@ -63,14 +63,16 @@ This creates a much better visual experience compared to showing code only in th
 
 **Exception:** For very simple one-liners (like `Console.WriteLine("Hello");`), you may skip the artifact and execute directly.
 
-**OUTPUT VISUALIZATION:**
-After receiving execution results, create artifacts to visualize output:
-- **Text output:** Create a text artifact (preserves formatting, ASCII art, tables, etc.)
-- **JSON output:** Create an artifact with JSON syntax highlighting
-- **HTML/SVG output:** Create an HTML artifact to render it
-- **Structured data (CSV, XML, etc.):** Use appropriate syntax highlighting in artifacts
+**OUTPUT VISUALIZATION - REQUIRED:**
+After executing code, you MUST create an artifact for the output:
+- **JSON output:** ALWAYS create an artifact with JSON syntax highlighting
+- **Text output:** ALWAYS create a text artifact (preserves formatting, ASCII art, tables, etc.)
+- **HTML/SVG output:** ALWAYS create an HTML artifact to render it
+- **Structured data (CSV, XML, etc.):** ALWAYS use appropriate syntax highlighting in artifacts
 
-This ensures formatting is preserved and content is displayed clearly.
+Exception: Simple single-line outputs (like "42" or "Hello World") don't need artifacts.
+
+This is not optional - artifacts ensure proper formatting and user experience.
 
 **WHEN TO USE MULTI-STEP WORKFLOW INSTEAD:**
 This tool is for quick, one-shot code execution. If the user needs:
