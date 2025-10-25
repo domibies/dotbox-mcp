@@ -329,3 +329,58 @@ class TestOutputFormatter:
         # Should contain the details
         assert "Stack trace" in result
         assert "Line 1" in result
+
+    def test_format_human_readable_success_with_code(self) -> None:
+        """Test that executed code is displayed in success response."""
+        formatter = OutputFormatter()
+        code = 'Console.WriteLine("Hello World");'
+        result = formatter.format_human_readable_response(
+            status="success",
+            output="Hello World",
+            exit_code=0,
+            dotnet_version="8",
+            code=code,
+        )
+
+        # Should contain code section
+        assert "Executed C# Code:" in result
+        # Should contain the actual code
+        assert code in result
+        # Should have separator lines
+        assert "─" in result
+        # Should still have output
+        assert "Hello World" in result
+
+    def test_format_human_readable_error_with_code(self) -> None:
+        """Test that failed code is displayed in error response."""
+        formatter = OutputFormatter()
+        code = "InvalidCode;"
+        result = formatter.format_human_readable_response(
+            status="error",
+            error_message="Build failed",
+            error_details="Compilation error",
+            code=code,
+        )
+
+        # Should contain code section
+        assert "Code that failed:" in result
+        # Should contain the actual code
+        assert code in result
+        # Should have error message
+        assert "Build failed" in result
+
+    def test_format_human_readable_without_code(self) -> None:
+        """Test that response works without code parameter."""
+        formatter = OutputFormatter()
+        result = formatter.format_human_readable_response(
+            status="success",
+            output="Output",
+            exit_code=0,
+            dotnet_version="8",
+            # No code parameter
+        )
+
+        # Should not have code section
+        assert "Executed C# Code:" not in result
+        # But should still have output
+        assert "Output" in result

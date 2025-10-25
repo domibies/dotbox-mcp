@@ -59,6 +59,7 @@ class OutputFormatter:
         output: str = "",
         exit_code: int = 0,
         dotnet_version: str = "",
+        code: str = "",
         error_type: str = "",
         error_message: str = "",
         error_details: str = "",
@@ -72,6 +73,7 @@ class OutputFormatter:
             output: Execution output
             exit_code: Process exit code
             dotnet_version: .NET version used
+            code: C# code that was executed (optional, for display)
             error_type: Type of error (if status is error)
             error_message: Error message (if status is error)
             error_details: Detailed error information
@@ -87,6 +89,14 @@ class OutputFormatter:
             # Success header
             sections.append(f"✓ Code executed successfully using .NET {dotnet_version}")
             sections.append("")
+
+            # Code section (if provided)
+            if code:
+                sections.append("Executed C# Code:")
+                sections.append("─" * 60)
+                sections.append(code)
+                sections.append("─" * 60)
+                sections.append("")
 
             # Output section
             if output.strip():
@@ -106,6 +116,14 @@ class OutputFormatter:
             if dotnet_version:
                 sections.append(f"(.NET {dotnet_version})")
             sections.append("")
+
+            # Code section (if provided)
+            if code:
+                sections.append("Code that failed:")
+                sections.append("─" * 60)
+                sections.append(code)
+                sections.append("─" * 60)
+                sections.append("")
 
             # Build errors
             if build_errors:
