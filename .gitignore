@@ -51,4 +51,5 @@ htmlcov/
 # Project-specific
 /workspace/
 /projects/
+/tempdoc/
 *.log
