@@ -1,0 +1,226 @@
+"""Docker container management for .NET sandboxes."""
+
+import uuid
+from dataclasses import dataclass
+
+from docker.errors import APIError, DockerException, NotFound
+
+import docker
+
+
+@dataclass
+class ContainerInfo:
+    """Information about a running container."""
+
+    container_id: str
+    name: str
+    project_id: str
+    status: str
+    ports: dict[str, str]
+
+
+class DockerContainerManager:
+    """Manages Docker containers for .NET sandboxes."""
+
+    LABEL_MANAGED_BY = "dotbox-mcp"
+    MEMORY_LIMIT = "512m"  # 512 MB
+    CPU_PERIOD = 100000  # 100ms
+    CPU_QUOTA = 50000  # 50% of one CPU core
+
+    def __init__(self) -> None:
+        """Initialize Docker client.
+
+        Raises:
+            DockerException: If Docker is not available
+        """
+        try:
+            self.client = docker.from_env()
+            self.client.ping()  # type: ignore[no-untyped-call]  # Verify connection
+        except DockerException as e:
+            raise DockerException(f"Docker is not available: {e}") from e
+
+    def create_container(
+        self,
+        dotnet_version: str,
+        project_id: str,
+        working_dir: str,
+        port_mapping: dict[int, int] | None = None,
+    ) -> str:
+        """Create and start a container with mounted volume.
+
+        Args:
+            dotnet_version: .NET version (8, 9, 10-rc2)
+            project_id: Project identifier for labeling
+            working_dir: Host directory to mount as /workspace
+            port_mapping: Optional port mapping {container_port: host_port}
+
+        Returns:
+            Container ID
+
+        Raises:
+            APIError: If container creation fails
+        """
+        # Generate human-readable container name
+        short_id = str(uuid.uuid4())[:8]
+        container_name = f"dotnet{dotnet_version}-{project_id}-{short_id}"
+
+        # Build image name
+        image = f"dotnet-sandbox:{dotnet_version}"
+
+        # Configure labels
+        labels = {
+            "managed-by": self.LABEL_MANAGED_BY,
+            "project-id": project_id,
+            "dotnet-version": dotnet_version,
+        }
+
+        # Configure volumes
+        volumes = {working_dir: {"bind": "/workspace", "mode": "rw"}}
+
+        # Configure ports
+        ports = {}
+        if port_mapping:
+            for container_port, host_port in port_mapping.items():
+                ports[container_port] = host_port
+
+        # Create and start container
+        try:
+            container = self.client.containers.run(  # type: ignore[call-overload]
+                image=image,
+                name=container_name,
+                detach=True,
+                labels=labels,
+                volumes=volumes,
+                ports=ports,
+                mem_limit=self.MEMORY_LIMIT,
+                cpu_period=self.CPU_PERIOD,
+                cpu_quota=self.CPU_QUOTA,
+                working_dir="/workspace",
+                remove=False,  # Don't auto-remove, we'll manage cleanup
+            )
+            return str(container.id)
+        except APIError as e:
+            raise APIError(f"Failed to create container: {e}") from e
+
+    def execute_command(
+        self,
+        container_id: str,
+        command: list[str],
+        timeout: int = 30,
+    ) -> tuple[str, str, int]:
+        """Execute command in container and return output.
+
+        Args:
+            container_id: Container identifier
+            command: Command to execute as list of strings
+            timeout: Maximum execution time in seconds
+
+        Returns:
+            Tuple of (stdout, stderr, exit_code)
+
+        Raises:
+            APIError: If command execution fails
+        """
+        try:
+            container = self.client.containers.get(container_id)
+
+            # Execute command
+            result = container.exec_run(
+                cmd=command,
+                stdout=True,
+                stderr=True,
+                demux=False,  # Don't separate stdout/stderr
+            )
+
+            # Decode output
+            output = result.output.decode("utf-8") if result.output else ""
+
+            # For simplicity, if exit code is 0, treat as stdout, else stderr
+            if result.exit_code == 0:
+                return output, "", result.exit_code
+            else:
+                return "", output, result.exit_code
+
+        except NotFound as e:
+            raise APIError(f"Container not found: {container_id}") from e
+        except APIError as e:
+            raise APIError(f"Command execution failed: {e}") from e
+
+    def stop_container(self, container_id: str) -> None:
+        """Stop and remove a container.
+
+        This operation is idempotent - if container doesn't exist, no error is raised.
+
+        Args:
+            container_id: Container identifier
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            container.stop(timeout=10)
+            container.remove()
+        except NotFound:
+            # Container already removed - this is fine (idempotent)
+            pass
+        except APIError as e:
+            # Log but don't raise - best effort cleanup
+            print(f"Warning: Failed to stop container {container_id}: {e}")
+
+    def list_containers(self) -> list[ContainerInfo]:
+        """List all active sandbox containers.
+
+        Returns:
+            List of ContainerInfo objects
+        """
+        try:
+            # Get all containers with our label
+            containers = self.client.containers.list(
+                filters={"label": f"managed-by={self.LABEL_MANAGED_BY}"}
+            )
+
+            result = []
+            for container in containers:
+                # Extract port mapping
+                ports_dict = {}
+                network_settings = container.attrs.get("NetworkSettings", {})
+                ports_data = network_settings.get("Ports", {})
+                if ports_data:
+                    for container_port, host_bindings in ports_data.items():
+                        if host_bindings:
+                            host_port = host_bindings[0].get("HostPort", "")
+                            if host_port:
+                                ports_dict[container_port] = host_port
+
+                info = ContainerInfo(
+                    container_id=container.id,
+                    name=container.name,
+                    project_id=container.labels.get("project-id", "unknown"),
+                    status=container.status,
+                    ports=ports_dict,
+                )
+                result.append(info)
+
+            return result
+
+        except APIError as e:
+            raise APIError(f"Failed to list containers: {e}") from e
+
+    def cleanup_all(self) -> int:
+        """Stop and remove all sandbox containers.
+
+        Returns:
+            Number of containers cleaned up
+        """
+        containers = self.client.containers.list(
+            filters={"label": f"managed-by={self.LABEL_MANAGED_BY}"}
+        )
+
+        count = 0
+        for container in containers:
+            try:
+                container.stop(timeout=10)
+                container.remove()
+                count += 1
+            except APIError as e:
+                print(f"Warning: Failed to cleanup container {container.id}: {e}")
+
+        return count
