@@ -1,0 +1,240 @@
+"""Executor for building and running .NET code in containers."""
+
+import re
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from docker.errors import APIError
+
+from src.docker_manager import DockerContainerManager
+from src.models import DotNetVersion
+
+
+class DotNetExecutor:
+    """Handles .NET project building and execution in containers."""
+
+    def __init__(self, docker_manager: DockerContainerManager) -> None:
+        """Initialize executor with Docker manager.
+
+        Args:
+            docker_manager: Docker container manager instance
+        """
+        self.docker_manager = docker_manager
+
+    def generate_csproj(self, dotnet_version: DotNetVersion, packages: list[str]) -> str:
+        """Generate .csproj file content.
+
+        Args:
+            dotnet_version: .NET version to target
+            packages: List of NuGet packages (format: "Package" or "Package@version")
+
+        Returns:
+            XML content of .csproj file
+        """
+        tfm = self._version_to_tfm(dotnet_version)
+
+        # Build package references
+        package_refs = []
+        for pkg in packages:
+            name, version = self._parse_package(pkg)
+            if version:
+                package_refs.append(
+                    f'    <PackageReference Include="{name}" Version="{version}" />'
+                )
+            else:
+                package_refs.append(f'    <PackageReference Include="{name}" />')
+
+        package_section = "\n".join(package_refs) if package_refs else ""
+
+        itemgroup = (
+            f"  <ItemGroup>\n{package_section}\n  </ItemGroup>\n" if package_section else ""
+        )
+
+        return f"""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>{tfm}</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+{itemgroup}</Project>
+"""
+
+    def build_project(
+        self, container_id: str, project_path: str, timeout: int = 30
+    ) -> tuple[bool, str, list[str]]:
+        """Build .NET project in container.
+
+        Args:
+            container_id: Container identifier
+            project_path: Path to project directory in container
+            timeout: Build timeout in seconds
+
+        Returns:
+            Tuple of (success, output, parsed_errors)
+        """
+        try:
+            stdout, stderr, exit_code = self.docker_manager.execute_command(
+                container_id=container_id,
+                command=["dotnet", "build", project_path],
+                timeout=timeout,
+            )
+
+            success = exit_code == 0
+            output = stdout if stdout else stderr
+            errors = self._parse_build_errors(stderr) if not success else []
+
+            return success, output, errors
+
+        except APIError as e:
+            return False, "", [f"Build failed: {e}"]
+
+    def run_snippet(
+        self,
+        code: str,
+        dotnet_version: DotNetVersion,
+        packages: list[str],
+        timeout: int = 30,
+    ) -> dict[str, Any]:
+        """Execute C# code snippet.
+
+        Creates temporary workspace, generates project files, builds and runs code.
+        Ensures cleanup of container and workspace regardless of outcome.
+
+        Args:
+            code: C# code to execute (top-level statements)
+            dotnet_version: .NET version to use
+            packages: List of NuGet packages
+            timeout: Execution timeout in seconds
+
+        Returns:
+            Dictionary with keys: success, stdout, stderr, exit_code, build_errors
+        """
+        workspace_dir = None
+        container_id = None
+
+        try:
+            # Create temporary workspace
+            workspace_dir = tempfile.mkdtemp(prefix="dotnet-snippet-")
+            workspace_path = Path(workspace_dir)
+
+            # Generate project structure
+            project_name = "Snippet"
+            project_dir = workspace_path / project_name
+            project_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write .csproj
+            csproj_content = self.generate_csproj(dotnet_version, packages)
+            (project_dir / f"{project_name}.csproj").write_text(csproj_content)
+
+            # Write Program.cs with user code
+            (project_dir / "Program.cs").write_text(code)
+
+            # Create container with mounted workspace
+            container_id = self.docker_manager.create_container(
+                dotnet_version=dotnet_version.value,
+                project_id="snippet",
+                working_dir=workspace_dir,
+            )
+
+            # Build project
+            build_success, build_output, build_errors = self.build_project(
+                container_id=container_id,
+                project_path=f"/workspace/{project_name}",
+                timeout=timeout,
+            )
+
+            if not build_success:
+                return {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": build_output,
+                    "exit_code": 1,
+                    "build_errors": build_errors,
+                }
+
+            # Run project
+            stdout, stderr, exit_code = self.docker_manager.execute_command(
+                container_id=container_id,
+                command=["dotnet", "run", "--project", f"/workspace/{project_name}"],
+                timeout=timeout,
+            )
+
+            return {
+                "success": exit_code == 0,
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code,
+                "build_errors": [],
+            }
+
+        except APIError as e:
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": f"Execution error: {e}",
+                "exit_code": 1,
+                "build_errors": [],
+            }
+
+        finally:
+            # Cleanup container
+            if container_id:
+                self.docker_manager.stop_container(container_id)
+
+            # Cleanup workspace
+            if workspace_dir:
+                shutil.rmtree(workspace_dir, ignore_errors=True)
+
+    def _version_to_tfm(self, version: DotNetVersion) -> str:
+        """Convert DotNetVersion to target framework moniker.
+
+        Args:
+            version: .NET version enum value
+
+        Returns:
+            Target framework moniker (e.g., "net8.0")
+        """
+        mapping = {
+            DotNetVersion.V8: "net8.0",
+            DotNetVersion.V9: "net9.0",
+            DotNetVersion.V10_RC2: "net10.0",
+        }
+        return mapping[version]
+
+    def _parse_package(self, package: str) -> tuple[str, str | None]:
+        """Parse package string into name and version.
+
+        Args:
+            package: Package string ("Name" or "Name@version")
+
+        Returns:
+            Tuple of (package_name, version or None)
+        """
+        if "@" in package:
+            name, version = package.split("@", 1)
+            return name, version
+        return package, None
+
+    def _parse_build_errors(self, stderr: str) -> list[str]:
+        """Parse MSBuild error output into structured list.
+
+        Args:
+            stderr: Build error output
+
+        Returns:
+            List of error messages
+        """
+        errors = []
+
+        # Pattern: File.cs(line,col): error CODE: message
+        error_pattern = r"^.*?\(\d+,\d+\): error (CS\d+):.*$"
+
+        for line in stderr.splitlines():
+            line = line.strip()
+            if re.search(error_pattern, line):
+                errors.append(line)
+
+        return errors
