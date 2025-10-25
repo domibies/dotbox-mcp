@@ -138,3 +138,61 @@ class TestExecuteSnippetInput:
 
         assert len(input_data.packages) == 3
         assert "Dapper" in input_data.packages
+
+    def test_dotnet_version_from_string(self) -> None:
+        """Test that dotnet_version accepts string values (for MCP JSON)."""
+        # Test each version as string (simulating MCP tool call from JSON)
+        for version_str in ["8", "9", "10-rc2"]:
+            input_data = ExecuteSnippetInput(
+                code="Console.WriteLine();",
+                dotnet_version=version_str,  # type: ignore[arg-type]
+            )
+            # Should accept string and store it
+            assert input_data.dotnet_version.value == version_str
+
+    def test_dotnet_version_from_integer(self) -> None:
+        """Test that dotnet_version accepts integer values (Claude Desktop bug)."""
+        # Claude Desktop sometimes passes integers instead of strings
+        input_data_8 = ExecuteSnippetInput(
+            code="Console.WriteLine();",
+            dotnet_version=8,  # type: ignore[arg-type]
+        )
+        assert input_data_8.dotnet_version == DotNetVersion.V8
+
+        input_data_9 = ExecuteSnippetInput(
+            code="Console.WriteLine();",
+            dotnet_version=9,  # type: ignore[arg-type]
+        )
+        assert input_data_9.dotnet_version == DotNetVersion.V9
+
+    def test_detail_level_from_string(self) -> None:
+        """Test that detail_level accepts string values (for MCP JSON)."""
+        # Test each level as string (simulating MCP tool call from JSON)
+        for level_str in ["concise", "full"]:
+            input_data = ExecuteSnippetInput(
+                code="Console.WriteLine();",
+                detail_level=level_str,  # type: ignore[arg-type]
+            )
+            # Should accept string and store it
+            assert input_data.detail_level.value == level_str
+
+    def test_json_schema_accepts_both_types(self) -> None:
+        """Test that JSON schema explicitly allows both int and string for dotnet_version."""
+        schema = ExecuteSnippetInput.model_json_schema()
+
+        # Get the dotnet_version property schema
+        version_schema = schema["properties"]["dotnet_version"]
+
+        # Should have anyOf with both integer and string types
+        assert "anyOf" in version_schema
+        assert len(version_schema["anyOf"]) == 2
+
+        # Check integer variant
+        int_variant = next((v for v in version_schema["anyOf"] if v["type"] == "integer"), None)
+        assert int_variant is not None
+        assert set(int_variant["enum"]) == {8, 9, 10}
+
+        # Check string variant
+        str_variant = next((v for v in version_schema["anyOf"] if v["type"] == "string"), None)
+        assert str_variant is not None
+        assert set(str_variant["enum"]) == {"8", "9", "10-rc2"}
