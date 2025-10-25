@@ -105,7 +105,7 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
         _, exec_instance, fmt = _initialize_components()
 
         # Execute snippet
-        result = exec_instance.run_snippet(
+        result = await exec_instance.run_snippet(
             code=input_data.code,
             dotnet_version=input_data.dotnet_version,
             packages=input_data.packages,

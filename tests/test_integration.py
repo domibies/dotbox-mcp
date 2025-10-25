@@ -26,7 +26,8 @@ def mock_docker_client() -> MagicMock:
 class TestMCPIntegration:
     """Integration tests for MCP server tool."""
 
-    def test_execute_snippet_end_to_end_success(
+    @pytest.mark.asyncio
+    async def test_execute_snippet_end_to_end_success(
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test successful snippet execution through MCP tool."""
@@ -50,7 +51,7 @@ class TestMCPIntegration:
             formatter = OutputFormatter()
 
             # Execute snippet
-            result = executor.run_snippet(
+            result = await executor.run_snippet(
                 code='Console.WriteLine("Hello World");',
                 dotnet_version=DotNetVersion.V8,
                 packages=[],
@@ -69,7 +70,8 @@ class TestMCPIntegration:
             assert result["success"] is True
             assert "Hello World" in formatted
 
-    def test_execute_snippet_with_build_error(
+    @pytest.mark.asyncio
+    async def test_execute_snippet_with_build_error(
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test snippet execution with compilation error."""
@@ -90,7 +92,7 @@ class TestMCPIntegration:
             docker_manager = DockerContainerManager()
             executor = DotNetExecutor(docker_manager=docker_manager)
 
-            result = executor.run_snippet(
+            result = await executor.run_snippet(
                 code="InvalidCode;",
                 dotnet_version=DotNetVersion.V8,
                 packages=[],
@@ -102,7 +104,8 @@ class TestMCPIntegration:
             assert len(result["build_errors"]) > 0
             assert "CS0103" in result["build_errors"][0]
 
-    def test_execute_snippet_with_packages(
+    @pytest.mark.asyncio
+    async def test_execute_snippet_with_packages(
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test snippet execution with NuGet packages."""
@@ -122,7 +125,7 @@ class TestMCPIntegration:
             docker_manager = DockerContainerManager()
             executor = DotNetExecutor(docker_manager=docker_manager)
 
-            result = executor.run_snippet(
+            result = await executor.run_snippet(
                 code='using Newtonsoft.Json; var obj = new { Name = "Test" }; Console.WriteLine(JsonConvert.SerializeObject(obj));',
                 dotnet_version=DotNetVersion.V8,
                 packages=["Newtonsoft.Json"],
@@ -163,7 +166,8 @@ class TestMCPIntegration:
                 detail_level=DetailLevel.CONCISE,
             )
 
-    def test_output_truncation_integration(
+    @pytest.mark.asyncio
+    async def test_output_truncation_integration(
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test that concise mode truncates output properly."""
@@ -188,7 +192,7 @@ class TestMCPIntegration:
             executor = DotNetExecutor(docker_manager=docker_manager)
             formatter = OutputFormatter()
 
-            result = executor.run_snippet(
+            result = await executor.run_snippet(
                 code='for (int i = 0; i < 100; i++) Console.WriteLine($"Line {i}");',
                 dotnet_version=DotNetVersion.V8,
                 packages=[],
@@ -214,7 +218,8 @@ class TestMCPIntegration:
             # Concise should be shorter than full
             assert len(formatted_concise) < len(formatted_full)
 
-    def test_container_cleanup_integration(
+    @pytest.mark.asyncio
+    async def test_container_cleanup_integration(
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test that containers are cleaned up after execution."""
@@ -234,7 +239,7 @@ class TestMCPIntegration:
             docker_manager = DockerContainerManager()
             executor = DotNetExecutor(docker_manager=docker_manager)
 
-            executor.run_snippet(
+            await executor.run_snippet(
                 code='Console.WriteLine("Test");',
                 dotnet_version=DotNetVersion.V8,
                 packages=[],
@@ -245,7 +250,8 @@ class TestMCPIntegration:
             mock_container.stop.assert_called_once()
             mock_container.remove.assert_called_once()
 
-    def test_different_dotnet_versions(
+    @pytest.mark.asyncio
+    async def test_different_dotnet_versions(
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test execution with different .NET versions."""
@@ -266,7 +272,7 @@ class TestMCPIntegration:
 
             # Test each version
             for version in [DotNetVersion.V8, DotNetVersion.V9, DotNetVersion.V10_RC2]:
-                result = executor.run_snippet(
+                result = await executor.run_snippet(
                     code='Console.WriteLine("Test");',
                     dotnet_version=version,
                     packages=[],

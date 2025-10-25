@@ -25,9 +25,10 @@ class TestDotNetExecutor:
         """Test that executor initializes correctly."""
         assert executor is not None
 
-    def test_generate_csproj_minimal(self, executor: DotNetExecutor) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_csproj_minimal(self, executor: DotNetExecutor) -> None:
         """Test generating minimal .csproj file without packages."""
-        csproj = executor.generate_csproj(
+        csproj = await executor.generate_csproj(
             dotnet_version=DotNetVersion.V8,
             packages=[],
         )
@@ -39,31 +40,36 @@ class TestDotNetExecutor:
         # Should not contain package references
         assert "<PackageReference" not in csproj
 
-    def test_generate_csproj_with_packages(self, executor: DotNetExecutor) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_csproj_with_packages(
+        self, executor: DotNetExecutor
+    ) -> None:
         """Test generating .csproj with NuGet packages."""
-        csproj = executor.generate_csproj(
+        csproj = await executor.generate_csproj(
             dotnet_version=DotNetVersion.V8,
             packages=["Newtonsoft.Json", "Dapper@2.0.0"],
         )
 
         # Should contain target framework
         assert "<TargetFramework>net8.0</TargetFramework>" in csproj
-        # Should contain package references
+        # Should contain package references (with versions fetched from NuGet)
         assert '<PackageReference Include="Newtonsoft.Json"' in csproj
         assert '<PackageReference Include="Dapper" Version="2.0.0"' in csproj
 
-    def test_generate_csproj_dotnet9(self, executor: DotNetExecutor) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_csproj_dotnet9(self, executor: DotNetExecutor) -> None:
         """Test generating .csproj for .NET 9."""
-        csproj = executor.generate_csproj(
+        csproj = await executor.generate_csproj(
             dotnet_version=DotNetVersion.V9,
             packages=[],
         )
 
         assert "<TargetFramework>net9.0</TargetFramework>" in csproj
 
-    def test_generate_csproj_dotnet10_rc2(self, executor: DotNetExecutor) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_csproj_dotnet10_rc2(self, executor: DotNetExecutor) -> None:
         """Test generating .csproj for .NET 10 RC2."""
-        csproj = executor.generate_csproj(
+        csproj = await executor.generate_csproj(
             dotnet_version=DotNetVersion.V10_RC2,
             packages=[],
         )
@@ -81,6 +87,82 @@ class TestDotNetExecutor:
         name, version = executor._parse_package("Dapper")
         assert name == "Dapper"
         assert version is None
+
+    @pytest.mark.asyncio
+    async def test_get_latest_nuget_version_success(
+        self, executor: DotNetExecutor
+    ) -> None:
+        """Test fetching latest version from NuGet API."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "versions": ["1.0.0", "2.0.0", "3.0.0-beta", "2.5.0"]
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get.return_value = (
+                mock_response
+            )
+
+            version = await executor._get_latest_nuget_version("TestPackage")
+
+            # Should return latest stable (not beta)
+            assert version == "2.5.0"
+
+    @pytest.mark.asyncio
+    async def test_get_latest_nuget_version_package_not_found(
+        self, executor: DotNetExecutor
+    ) -> None:
+        """Test handling package not found on NuGet."""
+        mock_response = Mock()
+        mock_response.status_code = 404
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get.return_value = (
+                mock_response
+            )
+
+            version = await executor._get_latest_nuget_version("NonExistentPackage")
+
+            assert version is None
+
+    @pytest.mark.asyncio
+    async def test_get_latest_nuget_version_network_error(
+        self, executor: DotNetExecutor
+    ) -> None:
+        """Test handling network errors gracefully."""
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get.side_effect = (
+                Exception("Network error")
+            )
+
+            version = await executor._get_latest_nuget_version("TestPackage")
+
+            # Should return None on error
+            assert version is None
+
+    @pytest.mark.asyncio
+    async def test_get_latest_nuget_version_caching(
+        self, executor: DotNetExecutor
+    ) -> None:
+        """Test that package versions are cached."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"versions": ["1.0.0"]}
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_get = mock_client.return_value.__aenter__.return_value.get
+            mock_get.return_value = mock_response
+
+            # First call
+            version1 = await executor._get_latest_nuget_version("TestPackage")
+            # Second call for same package
+            version2 = await executor._get_latest_nuget_version("TestPackage")
+
+            assert version1 == "1.0.0"
+            assert version2 == "1.0.0"
+            # Should only call API once (cached)
+            assert mock_get.call_count == 1
 
     def test_build_project_success(
         self, executor: DotNetExecutor, mock_docker_manager: MagicMock
@@ -154,7 +236,8 @@ Program.cs(8,1): error CS1002: ; expected
 
         assert len(errors) == 3
 
-    def test_run_snippet_success(
+    @pytest.mark.asyncio
+    async def test_run_snippet_success(
         self, executor: DotNetExecutor, mock_docker_manager: MagicMock
     ) -> None:
         """Test successful snippet execution."""
@@ -170,7 +253,7 @@ Program.cs(8,1): error CS1002: ; expected
         with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
             with patch("pathlib.Path.mkdir"):
                 with patch("pathlib.Path.write_text"):
-                    result = executor.run_snippet(
+                    result = await executor.run_snippet(
                         code='Console.WriteLine("Hello World");',
                         dotnet_version=DotNetVersion.V8,
                         packages=[],
@@ -185,7 +268,8 @@ Program.cs(8,1): error CS1002: ; expected
         # Verify cleanup was called
         mock_docker_manager.stop_container.assert_called_once_with("container-123")
 
-    def test_run_snippet_build_failure(
+    @pytest.mark.asyncio
+    async def test_run_snippet_build_failure(
         self, executor: DotNetExecutor, mock_docker_manager: MagicMock
     ) -> None:
         """Test snippet execution with build failure."""
@@ -201,7 +285,7 @@ Program.cs(8,1): error CS1002: ; expected
         with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
             with patch("pathlib.Path.mkdir"):
                 with patch("pathlib.Path.write_text"):
-                    result = executor.run_snippet(
+                    result = await executor.run_snippet(
                         code="InvalidCode;",
                         dotnet_version=DotNetVersion.V8,
                         packages=[],
@@ -215,7 +299,8 @@ Program.cs(8,1): error CS1002: ; expected
         # Verify cleanup was called even on failure
         mock_docker_manager.stop_container.assert_called_once()
 
-    def test_run_snippet_with_packages(
+    @pytest.mark.asyncio
+    async def test_run_snippet_with_packages(
         self, executor: DotNetExecutor, mock_docker_manager: MagicMock
     ) -> None:
         """Test snippet execution with NuGet packages."""
@@ -228,7 +313,7 @@ Program.cs(8,1): error CS1002: ; expected
         with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
             with patch("pathlib.Path.mkdir"):
                 with patch("pathlib.Path.write_text"):
-                    result = executor.run_snippet(
+                    result = await executor.run_snippet(
                         code='var obj = new { Name = "Test" }; Console.WriteLine(JsonConvert.SerializeObject(obj));',
                         dotnet_version=DotNetVersion.V8,
                         packages=["Newtonsoft.Json"],
@@ -239,7 +324,8 @@ Program.cs(8,1): error CS1002: ; expected
         assert result["success"] is True
         assert result["stdout"] == "JSON output"
 
-    def test_run_snippet_timeout(
+    @pytest.mark.asyncio
+    async def test_run_snippet_timeout(
         self, executor: DotNetExecutor, mock_docker_manager: MagicMock
     ) -> None:
         """Test snippet execution with timeout."""
@@ -256,7 +342,7 @@ Program.cs(8,1): error CS1002: ; expected
         with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
             with patch("pathlib.Path.mkdir"):
                 with patch("pathlib.Path.write_text"):
-                    result = executor.run_snippet(
+                    result = await executor.run_snippet(
                         code='while(true) { }',
                         dotnet_version=DotNetVersion.V8,
                         packages=[],
@@ -266,7 +352,8 @@ Program.cs(8,1): error CS1002: ; expected
         assert result["success"] is False
         assert "timeout" in result["stderr"].lower() or "Timeout" in result["stderr"]
 
-    def test_run_snippet_cleanup_on_exception(
+    @pytest.mark.asyncio
+    async def test_run_snippet_cleanup_on_exception(
         self, executor: DotNetExecutor, mock_docker_manager: MagicMock
     ) -> None:
         """Test that cleanup happens even when exception occurs."""
@@ -277,7 +364,7 @@ Program.cs(8,1): error CS1002: ; expected
             with patch("pathlib.Path.mkdir"):
                 with patch("pathlib.Path.write_text"):
                     with pytest.raises(RuntimeError):
-                        executor.run_snippet(
+                        await executor.run_snippet(
                             code='Console.WriteLine("Test");',
                             dotnet_version=DotNetVersion.V8,
                             packages=[],
@@ -287,7 +374,8 @@ Program.cs(8,1): error CS1002: ; expected
         # Verify cleanup was still called
         mock_docker_manager.stop_container.assert_called_once_with("container-123")
 
-    def test_workspace_cleanup(
+    @pytest.mark.asyncio
+    async def test_workspace_cleanup(
         self, executor: DotNetExecutor, mock_docker_manager: MagicMock
     ) -> None:
         """Test that temporary workspace is cleaned up."""
@@ -302,7 +390,7 @@ Program.cs(8,1): error CS1002: ; expected
             with patch("pathlib.Path.mkdir"):
                 with patch("pathlib.Path.write_text"):
                     with patch("shutil.rmtree", mock_rmtree):
-                        executor.run_snippet(
+                        await executor.run_snippet(
                             code='Console.WriteLine("Test");',
                             dotnet_version=DotNetVersion.V8,
                             packages=[],

@@ -21,6 +21,34 @@ The server is designed around **agent-centric workflows** rather than low-level 
 3. **Actionable Errors**: Enhanced error messages include specific suggestions (e.g., missing packages, port conflicts)
 4. **Human-Readable Naming**: Containers use descriptive names like "dotnet8-webapi-abc123" not raw IDs
 
+### Development Principles
+
+**CRITICAL: These principles MUST be followed strictly**
+
+1. **Test-Driven Development (TDD)**:
+   - Write tests FIRST, then implementation
+   - All tests must pass before committing
+   - **NEVER commit code with failing tests** - this is a hard rule
+   - Red → Green → Refactor cycle
+
+2. **Code Quality**:
+   - All code must pass ruff linting (no warnings)
+   - All code must pass mypy strict type checking
+   - Maintain high test coverage (>90% for new code)
+   - Follow DRY principles - no code duplication
+
+3. **Commit Standards**:
+   - Use conventional commit format (feat:, fix:, docs:, etc.)
+   - Only commit when all tests pass
+   - One logical change per commit
+   - Include test changes with implementation changes
+
+4. **Testing Standards**:
+   - Unit tests for all components
+   - Integration tests for end-to-end workflows
+   - Mock external dependencies (Docker, HTTP calls)
+   - Test both success and failure paths
+
 ### Core Workflows
 
 1. **Quick Snippet Testing**: Execute C# code without project setup

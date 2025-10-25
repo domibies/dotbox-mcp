@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import httpx
 from docker.errors import APIError
 
 from src.docker_manager import DockerContainerManager
@@ -22,8 +23,11 @@ class DotNetExecutor:
             docker_manager: Docker container manager instance
         """
         self.docker_manager = docker_manager
+        self._version_cache: dict[str, str | None] = {}
 
-    def generate_csproj(self, dotnet_version: DotNetVersion, packages: list[str]) -> str:
+    async def generate_csproj(
+        self, dotnet_version: DotNetVersion, packages: list[str]
+    ) -> str:
         """Generate .csproj file content.
 
         Args:
@@ -39,17 +43,25 @@ class DotNetExecutor:
         package_refs = []
         for pkg in packages:
             name, version = self._parse_package(pkg)
+
+            # If no version specified, try to get latest from NuGet API
+            if not version:
+                version = await self._get_latest_nuget_version(name)
+
             if version:
                 package_refs.append(
                     f'    <PackageReference Include="{name}" Version="{version}" />'
                 )
             else:
+                # Fallback: no version (NuGet will use latest but may warn)
                 package_refs.append(f'    <PackageReference Include="{name}" />')
 
         package_section = "\n".join(package_refs) if package_refs else ""
 
         itemgroup = (
-            f"  <ItemGroup>\n{package_section}\n  </ItemGroup>\n" if package_section else ""
+            f"  <ItemGroup>\n{package_section}\n  </ItemGroup>\n"
+            if package_section
+            else ""
         )
 
         return f"""<Project Sdk="Microsoft.NET.Sdk">
@@ -91,7 +103,7 @@ class DotNetExecutor:
         except APIError as e:
             return False, "", [f"Build failed: {e}"]
 
-    def run_snippet(
+    async def run_snippet(
         self,
         code: str,
         dotnet_version: DotNetVersion,
@@ -125,8 +137,8 @@ class DotNetExecutor:
             project_dir = workspace_path / project_name
             project_dir.mkdir(parents=True, exist_ok=True)
 
-            # Write .csproj
-            csproj_content = self.generate_csproj(dotnet_version, packages)
+            # Write .csproj (await async call to fetch package versions)
+            csproj_content = await self.generate_csproj(dotnet_version, packages)
             (project_dir / f"{project_name}.csproj").write_text(csproj_content)
 
             # Write Program.cs with user code
@@ -217,6 +229,50 @@ class DotNetExecutor:
             name, version = package.split("@", 1)
             return name, version
         return package, None
+
+    async def _get_latest_nuget_version(self, package_name: str) -> str | None:
+        """Get latest stable version of a package from NuGet API.
+
+        Args:
+            package_name: NuGet package name
+
+        Returns:
+            Latest stable version string, or None if not found/error
+        """
+        # Check cache first
+        if package_name in self._version_cache:
+            return self._version_cache[package_name]
+
+        try:
+            url = f"https://api.nuget.org/v3-flatcontainer/{package_name.lower()}/index.json"
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(url)
+
+                if response.status_code != 200:
+                    self._version_cache[package_name] = None
+                    return None
+
+                data = response.json()
+                versions: list[str] = data.get("versions", [])
+
+                # Filter out pre-release versions (contain -, like "3.0.0-beta")
+                stable_versions: list[str] = [v for v in versions if "-" not in v]
+
+                if not stable_versions:
+                    self._version_cache[package_name] = None
+                    return None
+
+                # Get latest stable version (last in list)
+                latest: str = stable_versions[-1]
+                self._version_cache[package_name] = latest
+                return latest
+
+        except Exception:
+            # Network error, timeout, invalid JSON, etc.
+            # Cache None to avoid repeated failures
+            self._version_cache[package_name] = None
+            return None
 
     def _parse_build_errors(self, stderr: str) -> list[str]:
         """Parse MSBuild error output into structured list.
