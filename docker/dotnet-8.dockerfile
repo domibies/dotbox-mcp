@@ -1,0 +1,16 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine
+
+# Install bash and curl for debugging
+RUN apk add --no-cache bash curl
+
+# Set working directory
+WORKDIR /workspace
+
+# Create non-root user for security
+RUN adduser -D -u 1000 sandbox
+
+# Switch to non-root user
+USER sandbox
+
+# Set default command to keep container running
+CMD ["tail", "-f", "/dev/null"]
