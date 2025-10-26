@@ -489,3 +489,38 @@ class DockerContainerManager:
             return []
 
         return [line.strip() for line in stdout.split("\n") if line.strip()]
+
+    def get_container_logs(
+        self,
+        container_id: str,
+        tail: int = 50,
+        since: int | None = None,
+    ) -> str:
+        """Get container logs (stdout/stderr from all processes).
+
+        Args:
+            container_id: Container identifier
+            tail: Number of lines to retrieve from end of logs (default: 50)
+            since: Only return logs since this many seconds ago (optional)
+
+        Returns:
+            Container logs as string
+
+        Raises:
+            APIError: If log retrieval fails
+        """
+        try:
+            container = self.client.containers.get(container_id)
+
+            # Get logs from container
+            logs_bytes = container.logs(tail=tail, since=since)
+
+            # Decode to string
+            if isinstance(logs_bytes, bytes):
+                return logs_bytes.decode("utf-8")
+            return str(logs_bytes)
+
+        except NotFound as e:
+            raise APIError(f"Container not found: {container_id}") from e
+        except APIError as e:
+            raise APIError(f"Failed to get logs: {e}") from e

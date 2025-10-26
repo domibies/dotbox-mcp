@@ -632,3 +632,54 @@ class TestDockerContainerManager:
         files = manager.list_files("test-container", "/nonexistent")
 
         assert files == []
+
+    def test_get_container_logs_default_tail(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test getting container logs with default tail."""
+        mock_container = MagicMock()
+        mock_container.logs.return_value = b"Log line 1\nLog line 2\nLog line 3\n"
+        mock_docker_client.containers.get.return_value = mock_container
+
+        logs = manager.get_container_logs("test-container")
+
+        assert logs == "Log line 1\nLog line 2\nLog line 3\n"
+        mock_container.logs.assert_called_once_with(tail=50, since=None)
+
+    def test_get_container_logs_custom_tail(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test getting container logs with custom tail."""
+        mock_container = MagicMock()
+        mock_container.logs.return_value = b"Recent log\n"
+        mock_docker_client.containers.get.return_value = mock_container
+
+        logs = manager.get_container_logs("test-container", tail=10)
+
+        assert logs == "Recent log\n"
+        mock_container.logs.assert_called_once_with(tail=10, since=None)
+
+    def test_get_container_logs_with_since(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test getting container logs with since parameter."""
+        mock_container = MagicMock()
+        mock_container.logs.return_value = b"Recent logs only\n"
+        mock_docker_client.containers.get.return_value = mock_container
+
+        logs = manager.get_container_logs("test-container", tail=50, since=300)
+
+        assert logs == "Recent logs only\n"
+        mock_container.logs.assert_called_once_with(tail=50, since=300)
+
+    def test_get_container_logs_empty(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test getting logs when container has no logs."""
+        mock_container = MagicMock()
+        mock_container.logs.return_value = b""
+        mock_docker_client.containers.get.return_value = mock_container
+
+        logs = manager.get_container_logs("test-container")
+
+        assert logs == ""
