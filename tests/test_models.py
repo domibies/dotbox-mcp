@@ -8,10 +8,13 @@ from src.models import (
     DotNetVersion,
     ExecuteCommandInput,
     ExecuteSnippetInput,
+    GetLogsInput,
     ListFilesInput,
     ReadFileInput,
+    RunBackgroundInput,
     StartContainerInput,
     StopContainerInput,
+    TestEndpointInput,
     WriteFileInput,
 )
 
@@ -634,3 +637,169 @@ class TestExecuteCommandInput:
 
         errors = exc_info.value.errors()
         assert any("command" in str(e["msg"]).lower() for e in errors)
+
+
+class TestRunBackgroundInput:
+    """Test RunBackgroundInput model."""
+
+    def test_valid_input_default_wait(self) -> None:
+        """Test creating model with default wait_for_ready."""
+        input_data = RunBackgroundInput(
+            project_id="test-project",
+            command=["dotnet", "run"],
+        )
+
+        assert input_data.project_id == "test-project"
+        assert input_data.command == ["dotnet", "run"]
+        assert input_data.wait_for_ready == 5  # Default
+
+    def test_valid_input_custom_wait(self) -> None:
+        """Test creating model with custom wait_for_ready."""
+        input_data = RunBackgroundInput(
+            project_id="test-api",
+            command=["dotnet", "run", "--project", "/workspace/MyApp"],
+            wait_for_ready=10,
+        )
+
+        assert input_data.wait_for_ready == 10
+
+    def test_wait_for_ready_zero_allowed(self) -> None:
+        """Test that wait_for_ready=0 is valid (no wait)."""
+        input_data = RunBackgroundInput(
+            project_id="test",
+            command=["dotnet", "run"],
+            wait_for_ready=0,
+        )
+
+        assert input_data.wait_for_ready == 0
+
+    def test_wait_for_ready_too_high_rejected(self) -> None:
+        """Test that wait_for_ready over 60 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            RunBackgroundInput(
+                project_id="test",
+                command=["dotnet", "run"],
+                wait_for_ready=61,
+            )
+
+        errors = exc_info.value.errors()
+        assert any("wait_for_ready" in str(e["loc"]) for e in errors)
+
+
+class TestTestEndpointInput:
+    """Test TestEndpointInput model."""
+
+    def test_valid_input_minimal(self) -> None:
+        """Test creating model with minimal input (just URL)."""
+        input_data = TestEndpointInput(
+            url="http://localhost:8080/health",
+        )
+
+        assert input_data.url == "http://localhost:8080/health"
+        assert input_data.method == "GET"  # Default
+        assert input_data.headers is None
+        assert input_data.body is None
+        assert input_data.timeout == 30  # Default
+
+    def test_valid_input_full(self) -> None:
+        """Test creating model with all fields."""
+        input_data = TestEndpointInput(
+            url="https://api.example.com/users",
+            method="POST",
+            headers={"Content-Type": "application/json", "Authorization": "Bearer token"},
+            body='{"name": "John"}',
+            timeout=60,
+        )
+
+        assert input_data.url == "https://api.example.com/users"
+        assert input_data.method == "POST"
+        assert input_data.headers == {"Content-Type": "application/json", "Authorization": "Bearer token"}
+        assert input_data.body == '{"name": "John"}'
+        assert input_data.timeout == 60
+
+    def test_url_without_scheme_rejected(self) -> None:
+        """Test that URL without http:// or https:// is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TestEndpointInput(
+                url="localhost:8080/api",
+            )
+
+        errors = exc_info.value.errors()
+        assert any("url" in str(e["msg"]).lower() for e in errors)
+
+    def test_invalid_method_rejected(self) -> None:
+        """Test that invalid HTTP method is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TestEndpointInput(
+                url="http://localhost:8080/test",
+                method="INVALID",  # type: ignore[arg-type]
+            )
+
+        errors = exc_info.value.errors()
+        assert any("method" in str(e["loc"]) for e in errors)
+
+
+class TestGetLogsInput:
+    """Test GetLogsInput model."""
+
+    def test_valid_input_defaults(self) -> None:
+        """Test creating model with default values."""
+        input_data = GetLogsInput(
+            project_id="test-project",
+        )
+
+        assert input_data.project_id == "test-project"
+        assert input_data.tail == 50  # Default
+        assert input_data.since is None  # Default
+
+    def test_valid_input_custom_tail(self) -> None:
+        """Test creating model with custom tail."""
+        input_data = GetLogsInput(
+            project_id="test-api",
+            tail=100,
+        )
+
+        assert input_data.tail == 100
+
+    def test_valid_input_with_since(self) -> None:
+        """Test creating model with since parameter."""
+        input_data = GetLogsInput(
+            project_id="test",
+            tail=20,
+            since=300,  # Last 5 minutes
+        )
+
+        assert input_data.since == 300
+
+    def test_tail_too_low_rejected(self) -> None:
+        """Test that tail=0 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            GetLogsInput(
+                project_id="test",
+                tail=0,
+            )
+
+        errors = exc_info.value.errors()
+        assert any("tail" in str(e["loc"]) for e in errors)
+
+    def test_tail_too_high_rejected(self) -> None:
+        """Test that tail over 1000 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            GetLogsInput(
+                project_id="test",
+                tail=1001,
+            )
+
+        errors = exc_info.value.errors()
+        assert any("tail" in str(e["loc"]) for e in errors)
+
+    def test_since_too_high_rejected(self) -> None:
+        """Test that since over 3600 (1 hour) is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            GetLogsInput(
+                project_id="test",
+                since=3601,
+            )
+
+        errors = exc_info.value.errors()
+        assert any("since" in str(e["loc"]) for e in errors)
