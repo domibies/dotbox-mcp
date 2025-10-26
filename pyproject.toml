@@ -71,6 +71,9 @@ addopts = [
     "--cov=src",
     "--cov-report=term-missing",
 ]
+markers = [
+    "e2e: marks tests as end-to-end integration tests (deselect with '-m \"not e2e\"')",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
