@@ -4,6 +4,7 @@ import asyncio
 import sys
 from typing import Any
 
+import httpx
 from docker.errors import DockerException
 from mcp.server import Server
 from mcp.types import TextContent, Tool, ToolAnnotations
@@ -16,10 +17,14 @@ from src.models import (
     DetailLevel,
     ExecuteCommandInput,
     ExecuteSnippetInput,
+    GetLogsInput,
+    KillProcessInput,
     ListFilesInput,
     ReadFileInput,
+    RunBackgroundInput,
     StartContainerInput,
     StopContainerInput,
+    TestEndpointInput,
     WriteFileInput,
 )
 
@@ -420,6 +425,176 @@ This creates a much better visual experience for the user to review code before 
                 openWorldHint=False,
             ),
         ),
+        Tool(
+            name="dotnet_run_background",
+            description="""Run a long-running process in background (e.g., web server).
+
+**Purpose**: Start long-running processes like web servers that need to keep running.
+
+**When to use**:
+- Starting web APIs or web applications
+- Running background services
+- Any process that runs continuously
+
+**When NOT to use**:
+- For short-lived commands (use dotnet_execute_command)
+- For one-shot code execution (use dotnet_execute_snippet)
+
+**Background execution**:
+- Process runs in background using shell backgrounding (nohup)
+- Tool returns immediately after wait_for_ready period
+- Process continues running after tool returns
+- Use dotnet_get_logs to check process output
+- Process logs are available via container logs
+
+**Common workflow**:
+1. Start container with port mapping: dotnet_start_container(ports={5000: 8080})
+2. Write project files: dotnet_write_file(...)
+3. Start web server: dotnet_run_background(command=["dotnet", "run"])
+4. Wait for ready (5 seconds default)
+5. Test endpoint: dotnet_test_endpoint(url="http://localhost:8080/health")
+6. Check logs if issues: dotnet_get_logs()
+
+**Returns**: Success message with process start confirmation
+            """,
+            inputSchema=RunBackgroundInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=False,
+                openWorldHint=True,
+            ),
+        ),
+        Tool(
+            name="dotnet_test_endpoint",
+            description="""Test HTTP endpoints by making requests.
+
+**Purpose**: Make HTTP requests to test web APIs and endpoints.
+
+**When to use**:
+- Testing web API endpoints
+- Verifying server is responding
+- Testing different HTTP methods (GET, POST, etc.)
+- Checking API responses
+
+**When NOT to use**:
+- For executing C# code (use dotnet_execute_snippet)
+- For checking if process is running (use dotnet_get_logs)
+
+**Features**:
+- Supports GET, POST, PUT, DELETE, PATCH methods
+- Custom headers (authentication, content-type, etc.)
+- Request body for POST/PUT
+- Configurable timeout
+- Returns status code, headers, and response body
+
+**Common use cases**:
+- GET /health to check if API is ready
+- POST /api/users with JSON body to test create endpoint
+- GET /api/data to verify data endpoints
+- Testing authentication with Authorization headers
+
+**Returns**: HTTP response with status code, headers, and body
+            """,
+            inputSchema=TestEndpointInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=False,
+                openWorldHint=True,
+            ),
+        ),
+        Tool(
+            name="dotnet_get_logs",
+            description="""Retrieve container logs for debugging.
+
+**Purpose**: Get logs from container to debug processes and see output.
+
+**When to use**:
+- Debugging background processes
+- Checking web server startup logs
+- Verifying process is running correctly
+- Troubleshooting errors
+
+**When NOT to use**:
+- For reading file contents (use dotnet_read_file)
+- For short-lived command output (use dotnet_execute_command)
+
+**Log sources**:
+- All stdout/stderr from processes in container
+- dotnet run output
+- Application logs
+- Error messages and stack traces
+
+**Parameters**:
+- tail: Number of lines from end (default 50, max 1000)
+- since: Only logs from last N seconds (optional)
+
+**Common workflow**:
+1. Start background process: dotnet_run_background(...)
+2. Wait a few seconds
+3. Check if started: dotnet_get_logs(tail=20)
+4. Look for "Now listening on" or error messages
+
+**Returns**: Container logs as text
+            """,
+            inputSchema=GetLogsInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        Tool(
+            name="dotnet_kill_process",
+            description="""Kill background processes in a container.
+
+**Purpose**: Stop long-running background processes (like web servers) without stopping the container.
+
+**Use cases**:
+- Stop a running web server to make code changes
+- Kill stuck processes
+- Clean up before restarting with new configuration
+- Iterative development: run → test → kill → modify → run again
+
+**Why use this instead of dotnet_stop_container**:
+- Keeps container and files intact
+- Faster than recreating container
+- Preserves state for iterative development
+- Can selectively kill specific processes
+
+**Parameters**:
+- process_pattern (optional): Specific process pattern to kill (e.g., "dotnet run --project MyApi")
+- If omitted: Kills ALL background dotnet processes (safest default)
+
+**Common workflows**:
+
+1. **Iterative web development**:
+   ```
+   dotnet_run_background(...)  # Start server
+   dotnet_test_endpoint(...)   # Test it
+   # Want to make changes:
+   dotnet_kill_process()       # Stop server
+   dotnet_write_file(...)      # Update code
+   dotnet_run_background(...)  # Restart server
+   ```
+
+2. **Selective process termination**:
+   ```
+   dotnet_kill_process(process_pattern="dotnet run --project Api1")  # Kill specific app
+   ```
+
+**Returns**: Success message if processes were killed, or message if no processes found
+            """,
+            inputSchema=KillProcessInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=False,
+                destructiveHint=True,  # Kills processes
+                idempotentHint=False,  # Different processes may be running each time
+                openWorldHint=False,
+            ),
+        ),
     ]
 
 
@@ -440,6 +615,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await list_files(arguments)
     elif name == "dotnet_execute_command":
         return await execute_command(arguments)
+    elif name == "dotnet_run_background":
+        return await run_background(arguments)
+    elif name == "dotnet_test_endpoint":
+        return await test_endpoint(arguments)
+    elif name == "dotnet_get_logs":
+        return await get_logs(arguments)
+    elif name == "dotnet_kill_process":
+        return await kill_process(arguments)
 
     raise ValueError(f"Unknown tool: {name}")
 
@@ -586,11 +769,28 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
         container_id = mgr.create_container(
             dotnet_version=input_data.dotnet_version.value,
             project_id=input_data.project_id,  # type: ignore[arg-type]
+            port_mapping=input_data.ports,
         )
+
+        # Get port information if ports were mapped
+        port_info = {}
+        if input_data.ports:
+            # Get actual mapped ports from container
+            containers = mgr.list_containers()
+            for container in containers:
+                if container.container_id == container_id:
+                    port_info = container.ports
+                    break
+
+        # Build output message
+        output_msg = f"Started container for project '{input_data.project_id}'"
+        if port_info:
+            port_list = [f"{container_port} → {host_port}" for container_port, host_port in port_info.items()]
+            output_msg += f"\nPorts: {', '.join(port_list)}"
 
         response = fmt.format_human_readable_response(
             status="success",
-            output=f"Started container for project '{input_data.project_id}'",
+            output=output_msg,
             container_id=container_id,
             project_id=input_data.project_id,  # type: ignore[arg-type]
             dotnet_version=input_data.dotnet_version.value,
@@ -989,6 +1189,342 @@ async def execute_command(arguments: dict[str, Any]) -> list[TextContent]:
         error_response = OutputFormatter().format_human_readable_response(
             status="error",
             error_message="Failed to execute command",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def run_background(arguments: dict[str, Any]) -> list[TextContent]:
+    """Run a command in background (long-running process).
+
+    Args:
+        arguments: Tool arguments matching RunBackgroundInput schema
+
+    Returns:
+        List with single TextContent containing response
+    """
+    try:
+        # Validate input
+        input_data = RunBackgroundInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"No running container found for project '{input_data.project_id}'",
+                error_details="Start a container first with dotnet_start_container",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Build background command using nohup and shell backgrounding
+        # Output redirected to container stdout/stderr (accessible via logs)
+        command_str = " ".join(input_data.command)
+        bg_command = ["sh", "-c", f"nohup {command_str} </dev/null >/proc/1/fd/1 2>/proc/1/fd/2 &"]
+
+        # Execute background command
+        stdout, stderr, exit_code = mgr.execute_command(
+            container_id=container_id,
+            command=bg_command,
+            timeout=5,
+        )
+
+        # Wait for process to start
+        if input_data.wait_for_ready > 0:
+            import time
+            time.sleep(input_data.wait_for_ready)
+
+        # Check if process started successfully
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=f"Process started in background: {' '.join(input_data.command)}\nWaited {input_data.wait_for_ready} seconds for startup.\nUse dotnet_get_logs to check process output.",
+            project_id=input_data.project_id,
+            container_id=container_id,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to run background process",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
+    """Test an HTTP endpoint.
+
+    Args:
+        arguments: Tool arguments matching TestEndpointInput schema
+
+    Returns:
+        List with single TextContent containing response
+    """
+    try:
+        # Validate input
+        input_data = TestEndpointInput(**arguments)
+
+        # Initialize formatter
+        _, _, fmt = _initialize_components()
+
+        # Make HTTP request using httpx
+        import time
+        start_time = time.time()
+
+        async with httpx.AsyncClient(timeout=input_data.timeout) as client:
+            # Make request with explicit arguments for type safety
+            if input_data.body and input_data.method in ["POST", "PUT", "PATCH"]:
+                response = await client.request(
+                    input_data.method,
+                    input_data.url,
+                    headers=input_data.headers,
+                    content=input_data.body,
+                )
+            else:
+                response = await client.request(
+                    input_data.method,
+                    input_data.url,
+                    headers=input_data.headers,
+                )
+
+        response_time_ms = int((time.time() - start_time) * 1000)
+
+        # Format response
+        output = f"""HTTP {input_data.method} {input_data.url}
+Status: {response.status_code} {response.reason_phrase}
+Response Time: {response_time_ms}ms
+
+Headers:
+{chr(10).join(f'  {k}: {v}' for k, v in response.headers.items())}
+
+Body:
+{response.text}"""
+
+        result = fmt.format_human_readable_response(
+            status="success" if 200 <= response.status_code < 400 else "error",
+            output=output,
+        )
+
+        return [TextContent(type="text", text=result)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except httpx.TimeoutException:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message=f"Request timed out after {input_data.timeout} seconds",
+            error_details=f"Could not connect to {input_data.url}",
+            suggestions=[
+                "Check if the server is running",
+                "Verify the port mapping is correct",
+                "Use dotnet_get_logs to check server startup",
+                "Increase timeout if server is slow to start",
+            ],
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except httpx.ConnectError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Connection refused",
+            error_details=str(e),
+            suggestions=[
+                "Check if the server is running: dotnet_get_logs",
+                "Verify the URL and port are correct",
+                "Ensure port mapping was configured: dotnet_start_container(ports={...})",
+                "Wait a bit longer for server to start",
+            ],
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="HTTP request failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def get_logs(arguments: dict[str, Any]) -> list[TextContent]:
+    """Get container logs.
+
+    Args:
+        arguments: Tool arguments matching GetLogsInput schema
+
+    Returns:
+        List with single TextContent containing logs
+    """
+    try:
+        # Validate input
+        input_data = GetLogsInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"No running container found for project '{input_data.project_id}'",
+                error_details="Start a container first with dotnet_start_container",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Get logs from container
+        logs = mgr.get_container_logs(
+            container_id=container_id,
+            tail=input_data.tail,
+            since=input_data.since,
+        )
+
+        if not logs:
+            output = "No logs available (container may have just started)"
+        else:
+            output = f"Container logs (last {input_data.tail} lines):\n\n{logs}"
+
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=output,
+            project_id=input_data.project_id,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to get logs",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def kill_process(arguments: dict[str, Any]) -> list[TextContent]:
+    """Kill background processes in a container.
+
+    Args:
+        arguments: Tool arguments matching KillProcessInput schema
+
+    Returns:
+        List with single TextContent containing result
+    """
+    try:
+        # Validate input
+        input_data = KillProcessInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"No running container found for project '{input_data.project_id}'",
+                error_details="Start a container first with dotnet_start_container",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Build pkill command based on pattern
+        if input_data.process_pattern:
+            # Kill processes matching specific pattern
+            command = ["pkill", "-f", input_data.process_pattern]
+            desc = f"processes matching '{input_data.process_pattern}'"
+        else:
+            # Kill all background dotnet processes (common use case)
+            command = ["pkill", "-f", "dotnet"]
+            desc = "background dotnet processes"
+
+        # Execute kill command (pkill returns 0 if processes were killed, 1 if none found)
+        stdout, stderr, exit_code = mgr.execute_command(
+            container_id=container_id,
+            command=command,
+            timeout=5,
+        )
+
+        if exit_code == 0:
+            output = f"Successfully killed {desc} in container '{input_data.project_id}'"
+        elif exit_code == 1:
+            output = f"No {desc} found running in container '{input_data.project_id}'"
+        else:
+            output = f"Kill command completed with exit code {exit_code}\nStderr: {stderr}"
+
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=output,
+            project_id=input_data.project_id,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to kill processes",
             error_details=str(e),
         )
         return [TextContent(type="text", text=error_response)]

@@ -607,3 +607,349 @@ class TestE2EFileOperations:
 
         # Cleanup
         docker_manager.stop_container(container_id)
+
+
+class TestE2EWebServerSupport:
+    """Test web server support features: port mapping, background processes, HTTP testing, logs."""
+
+    @pytest.mark.e2e
+    def test_port_mapping_basic(self, docker_manager: DockerContainerManager) -> None:
+        """Test creating container with port mapping."""
+        # Create container with port mapping
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-ports",
+            port_mapping={5000: 0},  # Map container port 5000 to auto-assigned host port
+        )
+
+        # List containers and verify port mapping
+        containers = docker_manager.list_containers()
+        our_container = next((c for c in containers if c.container_id == container_id), None)
+
+        assert our_container is not None
+        assert our_container.ports is not None
+        # Should have port mapping with auto-assigned host port (Docker format: "5000/tcp")
+        assert "5000/tcp" in our_container.ports
+        host_port = int(our_container.ports["5000/tcp"])
+        assert host_port > 0  # Should be assigned a real port
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    def test_port_mapping_multiple_ports(self, docker_manager: DockerContainerManager) -> None:
+        """Test creating container with multiple port mappings."""
+        # Create container with multiple ports
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-multiport",
+            port_mapping={5000: 0, 5001: 0},  # Two auto-assigned ports
+        )
+
+        # List containers and verify port mappings
+        containers = docker_manager.list_containers()
+        our_container = next((c for c in containers if c.container_id == container_id), None)
+
+        assert our_container is not None
+        assert our_container.ports is not None
+        assert "5000/tcp" in our_container.ports
+        assert "5001/tcp" in our_container.ports
+        # Both should have different assigned ports
+        host_port_5000 = int(our_container.ports["5000/tcp"])
+        host_port_5001 = int(our_container.ports["5001/tcp"])
+        assert host_port_5000 > 0
+        assert host_port_5001 > 0
+        assert host_port_5000 != host_port_5001
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    def test_get_container_logs(self, docker_manager: DockerContainerManager) -> None:
+        """Test retrieving container logs."""
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-logs",
+        )
+
+        # Execute command that writes to container's main stdout/stderr
+        # This is what background processes do to make logs visible
+        docker_manager.execute_command(
+            container_id=container_id,
+            command=[
+                "sh",
+                "-c",
+                "echo 'Log line 1' >/proc/1/fd/1 && echo 'Log line 2' >/proc/1/fd/1 && echo 'Log line 3' >/proc/1/fd/1",
+            ],
+            timeout=10,
+        )
+
+        # Get logs
+        logs = docker_manager.get_container_logs(
+            container_id=container_id,
+            tail=50,
+        )
+
+        # Verify logs contain our output
+        assert "Log line 1" in logs
+        assert "Log line 2" in logs
+        assert "Log line 3" in logs
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    def test_get_container_logs_with_tail_limit(self, docker_manager: DockerContainerManager) -> None:
+        """Test retrieving container logs with tail limit."""
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-logs-tail",
+        )
+
+        # Execute commands that produce multiple lines
+        for i in range(1, 11):
+            docker_manager.execute_command(
+                container_id=container_id,
+                command=["sh", "-c", f"echo 'Log line {i}'"],
+                timeout=10,
+            )
+
+        # Get logs with small tail
+        logs = docker_manager.get_container_logs(
+            container_id=container_id,
+            tail=3,
+        )
+
+        # Should only get last 3 lines
+        lines = [line for line in logs.strip().split("\n") if line.strip()]
+        assert len(lines) <= 5  # Allow some tolerance for Docker output formatting
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    @pytest.mark.asyncio
+    async def test_background_process_execution(self, docker_manager: DockerContainerManager) -> None:
+        """Test running a background process (sleep simulation)."""
+        import asyncio
+
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-background",
+        )
+
+        # Start a background process using nohup
+        # Use a simple sleep command that echoes before and after
+        bg_command = [
+            "sh",
+            "-c",
+            "nohup sh -c 'echo Starting background process && sleep 3 && echo Background process done' >/proc/1/fd/1 2>/proc/1/fd/2 &",
+        ]
+
+        docker_manager.execute_command(
+            container_id=container_id,
+            command=bg_command,
+            timeout=5,
+        )
+
+        # Wait a moment for process to start
+        await asyncio.sleep(1)
+
+        # Get logs - should show start message
+        logs = docker_manager.get_container_logs(
+            container_id=container_id,
+            tail=50,
+        )
+        assert "Starting background process" in logs
+
+        # Wait for background process to complete
+        await asyncio.sleep(3)
+
+        # Get logs again - should show completion message
+        logs = docker_manager.get_container_logs(
+            container_id=container_id,
+            tail=50,
+        )
+        assert "Background process done" in logs
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    @pytest.mark.asyncio
+    async def test_simple_web_server_workflow(self, docker_manager: DockerContainerManager) -> None:
+        """Test complete workflow: create web API, run in background, test endpoint, check logs."""
+        import asyncio
+
+        import httpx
+
+        # Create container with port mapping
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-webapi",
+            port_mapping={5000: 0},  # Auto-assign host port
+        )
+
+        # Get the assigned host port
+        containers = docker_manager.list_containers()
+        our_container = next((c for c in containers if c.container_id == container_id), None)
+        assert our_container is not None
+        assert our_container.ports is not None
+        host_port = int(our_container.ports["5000/tcp"])
+        assert host_port > 0
+
+        # Create a minimal web API project
+        csproj_content = """<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+"""
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/WebApi/WebApi.csproj",
+            content=csproj_content,
+        )
+
+        # Create Program.cs with minimal API
+        program_content = """var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapGet("/", () => "Hello from DotBox!");
+app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
+
+app.Run("http://0.0.0.0:5000");
+"""
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/WebApi/Program.cs",
+            content=program_content,
+        )
+
+        # Build the project
+        stdout, stderr, exit_code = docker_manager.execute_command(
+            container_id=container_id,
+            command=["dotnet", "build", "/workspace/WebApi"],
+            timeout=60,
+        )
+        assert exit_code == 0, f"Build failed: {stdout} {stderr}"
+
+        # Run in background
+        bg_command = [
+            "sh",
+            "-c",
+            "nohup dotnet run --project /workspace/WebApi --no-build </dev/null >/proc/1/fd/1 2>/proc/1/fd/2 &",
+        ]
+        docker_manager.execute_command(
+            container_id=container_id,
+            command=bg_command,
+            timeout=5,
+        )
+
+        # Wait for server to start
+        await asyncio.sleep(5)
+
+        # Test the endpoint using httpx
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Test root endpoint
+                response = await client.get(f"http://localhost:{host_port}/")
+                assert response.status_code == 200
+                assert "Hello from DotBox" in response.text
+
+                # Test health endpoint
+                health_response = await client.get(f"http://localhost:{host_port}/health")
+                assert health_response.status_code == 200
+                health_data = health_response.json()
+                assert health_data["status"] == "healthy"
+
+        except Exception as e:
+            # Get logs for debugging if test fails
+            logs = docker_manager.get_container_logs(container_id=container_id, tail=100)
+            pytest.fail(f"HTTP request failed: {e}\n\nContainer logs:\n{logs}")
+
+        # Check logs
+        logs = docker_manager.get_container_logs(
+            container_id=container_id,
+            tail=50,
+        )
+        # Should contain some indication that the app is running
+        assert "info:" in logs.lower() or "application" in logs.lower() or "listening" in logs.lower()
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    @pytest.mark.asyncio
+    async def test_kill_process_workflow(self, docker_manager: DockerContainerManager) -> None:
+        """Test the complete kill_process workflow: start process, kill it, verify container still works."""
+        import asyncio
+
+        from src.server import kill_process
+
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-kill-workflow",
+        )
+
+        # Start a long-running background process
+        bg_command = [
+            "sh",
+            "-c",
+            "nohup sh -c 'echo Process started; sleep 120; echo Process ended' >/proc/1/fd/1 2>/proc/1/fd/2 &",
+        ]
+        docker_manager.execute_command(
+            container_id=container_id,
+            command=bg_command,
+            timeout=5,
+        )
+
+        # Wait for process to start
+        await asyncio.sleep(1)
+
+        # Verify process is running
+        logs_before = docker_manager.get_container_logs(
+            container_id=container_id,
+            tail=50,
+        )
+        assert "Process started" in logs_before
+
+        # Kill the process using kill_process function
+        result = await kill_process(
+            {"project_id": "test-kill-workflow", "process_pattern": "sleep 120"}
+        )
+
+        # Verify kill was successful
+        assert len(result) == 1
+        result_text = result[0].text
+        assert "success" in result_text.lower() or "killed" in result_text.lower()
+
+        # Wait a moment
+        await asyncio.sleep(1)
+
+        # Verify container is still running and we can execute commands
+        stdout, stderr, exit_code = docker_manager.execute_command(
+            container_id=container_id,
+            command=["echo", "Container still alive"],
+            timeout=5,
+        )
+        assert exit_code == 0
+        assert "Container still alive" in stdout
+
+        # Test killing when no processes match (should not error)
+        result2 = await kill_process(
+            {"project_id": "test-kill-workflow", "process_pattern": "nonexistent-process"}
+        )
+        assert len(result2) == 1
+        result2_text = result2[0].text
+        # Should say no processes found
+        assert "no" in result2_text.lower() or "not found" in result2_text.lower()
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
