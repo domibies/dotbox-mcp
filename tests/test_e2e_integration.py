@@ -7,7 +7,7 @@ These tests require:
 Run with: pytest -v -m e2e tests/test_e2e_integration.py
 """
 
-from typing import Generator
+from collections.abc import Generator
 
 import pytest
 
