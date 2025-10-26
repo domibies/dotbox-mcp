@@ -2,13 +2,29 @@
 
 **Work in Progress** 🚧
 
-A Model Context Protocol (MCP) server that manages Docker containers for executing .NET workloads. Enables LLMs to run C# code, test different .NET versions (8, 9, 10 RC2), and manage containerized development environments.
+A Model Context Protocol (MCP) server that enables LLMs to execute .NET workloads in isolated Docker containers. Think of it as a secure sandbox where Claude can write C# code, build projects, host web APIs, and test across multiple .NET versions - all without affecting your local environment.
 
 Built with FastMCP (Python) and Docker SDK.
 
+## What It Does (Sneak Peek)
+
+This MCP server is designed around **agent-centric workflows** - providing complete end-to-end tools rather than low-level Docker commands:
+
+- **Quick C# Snippets**: Execute C# code instantly without project setup
+- **Full Project Management**: Create, build, and run complete .NET projects (console apps, web APIs, class libraries)
+- **Multi-Version Testing**: Compare code behavior across .NET 8, 9, and 10 RC2 in parallel
+- **Web API Hosting**: Start web servers in containers with external port mapping for real HTTP testing
+- **Resource Management**: Automatic container cleanup, timeout handling, and resource limits
+
+Under the hood, it manages Alpine-based Docker images with .NET SDKs, handles build/execution orchestration, and formats output to stay within MCP's constraints.
+
 ## Status
 
-Currently implementing core functionality using TDD principles. The project is not yet ready for production use.
+Currently implementing core functionality using strict TDD principles (unit tests → implementation → E2E validation). The server handles basic workflows but is actively evolving based on real-world usage feedback.
+
+**Latest:** Port mapping and web API hosting tools are functional. Working on enhanced examples and documentation based on Claude Desktop integration testing.
+
+Not yet ready for production use - API signatures may change.
 
 ## Requirements
 
