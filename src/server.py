@@ -5,7 +5,7 @@ from typing import Any
 
 from docker.errors import DockerException
 from mcp.server import Server
-from mcp.types import TextContent, Tool
+from mcp.types import TextContent, Tool, ToolAnnotations
 from pydantic import ValidationError
 
 from src.docker_manager import DockerContainerManager
@@ -114,6 +114,12 @@ The container is automatically cleaned up after execution.
 - With version: "Newtonsoft.Json@13.0.3" (uses specific version)
             """,
             inputSchema=ExecuteSnippetInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=False,
+                openWorldHint=True,
+            ),
         ),
         Tool(
             name="dotnet_start_container",
@@ -126,16 +132,28 @@ Use this when you need to perform multiple operations (build, run, add files) on
 - Creating a new .NET project that will need multiple operations
 - Building and running a project in separate steps
 - Hosting a web API or long-running service
+- Need to preserve state between multiple operations
+
+**When NOT to use:**
+- For one-shot code execution (use dotnet_execute_snippet instead)
+- When you don't need to preserve container state
+- For quick code testing without project structure
 
 **Container lifecycle:**
 - Containers auto-cleanup after 30 minutes of inactivity
 - Use dotnet_stop_container to manually stop when done
 - Activity tracking resets on each command execution
+- Calling this tool multiple times with the same project_id returns the existing container
 
 **Workflow example:**
 1. Call dotnet_start_container with project_id and working_dir
 2. Perform operations (build, run, add files) using the project_id
 3. Container automatically cleans up after idle timeout
+
+**Common errors:**
+- "Docker is not available": Ensure Docker is running on the host
+- "Failed to create container": Check that Docker images are built (run docker/build-images.sh)
+- Container already exists: The tool is idempotent - returns existing container ID
 
 **Returns:**
 - container_id: Docker container identifier
@@ -143,6 +161,12 @@ Use this when you need to perform multiple operations (build, run, add files) on
 - status: "running"
             """,
             inputSchema=StartContainerInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=True,
+            ),
         ),
         Tool(
             name="dotnet_stop_container",
@@ -155,16 +179,35 @@ The container is identified by its project_id.
 - After completing all operations on a project
 - To free up resources immediately (instead of waiting for auto-cleanup)
 - To restart a project with fresh state
+- When you encounter errors and need to reset the container
 
-**Note:**
+**When NOT to use:**
+- Between build and run operations (keep container running)
+- During active development on a project
+- When you plan to continue working with the project soon
+
+**Behavior:**
 - This operation is idempotent - stopping an already-stopped container will not error
 - Containers auto-cleanup after 30 minutes idle, so explicit stopping is optional
+- Container state and files are lost - working_dir on host is preserved
+- Activity tracking for this container is removed
+
+**Common errors:**
+- "No running container found": Container already stopped or never started (not an error)
+- "Docker is not available": Ensure Docker is running on the host
 
 **Returns:**
 - success: true if stopped successfully
 - project_id: Project identifier (echoed back)
+- message: Indicates whether container was found and stopped
             """,
             inputSchema=StopContainerInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=False,
+                destructiveHint=True,
+                idempotentHint=True,
+                openWorldHint=True,
+            ),
         ),
     ]
 
