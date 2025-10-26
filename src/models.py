@@ -433,3 +433,12 @@ class KillProcessInput(BaseModel):
         description="Process pattern to kill (e.g., 'dotnet run'). If not specified, kills all background dotnet processes.",
         max_length=200,
     )
+
+
+class ListContainersInput(BaseModel):
+    """Input model for listing all managed containers.
+
+    No parameters required - lists all active containers managed by this MCP server.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)

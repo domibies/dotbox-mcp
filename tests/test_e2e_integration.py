@@ -953,3 +953,134 @@ app.Run("http://0.0.0.0:5000");
 
         # Cleanup
         docker_manager.stop_container(container_id)
+
+
+@pytest.mark.e2e
+class TestE2EListContainers:
+    """E2E tests for listing containers."""
+
+    @pytest.mark.asyncio
+    async def test_list_containers_no_containers(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test listing when no containers are running."""
+        from src.server import list_containers
+
+        # Ensure no containers are running
+        docker_manager.cleanup_all()
+
+        # Call list_containers
+        result = await list_containers({})
+
+        assert len(result) == 1
+        response_text = result[0].text
+        assert "No active containers found" in response_text
+
+    @pytest.mark.asyncio
+    async def test_list_containers_single_container(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test listing a single container without ports."""
+        from src.server import list_containers
+
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-list-single",
+        )
+
+        try:
+            # Call list_containers
+            result = await list_containers({})
+
+            assert len(result) == 1
+            response_text = result[0].text
+            assert "Found 1 active container(s)" in response_text
+            assert "test-list-single" in response_text
+            assert container_id[:12] in response_text
+            assert "running" in response_text.lower()
+            assert "Port Mappings: None" in response_text
+
+        finally:
+            docker_manager.stop_container(container_id)
+
+    @pytest.mark.asyncio
+    async def test_list_containers_multiple_with_ports(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test listing multiple containers with port mappings."""
+        from src.server import list_containers
+
+        # Create containers with different configurations
+        container1_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="api-service",
+            port_mapping={5000: 0, 5001: 0},  # Auto-assign ports
+        )
+
+        container2_id = docker_manager.create_container(
+            dotnet_version="9",
+            project_id="worker-service",
+        )
+
+        try:
+            # Call list_containers
+            result = await list_containers({})
+
+            assert len(result) == 1
+            response_text = result[0].text
+
+            # Verify count
+            assert "Found 2 active container(s)" in response_text
+
+            # Verify container 1 (with ports)
+            assert "api-service" in response_text
+            assert container1_id[:12] in response_text
+            assert "5000/tcp" in response_text
+            assert "5001/tcp" in response_text
+
+            # Verify container 2 (no ports)
+            assert "worker-service" in response_text
+            assert container2_id[:12] in response_text
+
+            # Verify at least one has "Port Mappings: None"
+            assert "Port Mappings: None" in response_text
+
+        finally:
+            docker_manager.stop_container(container1_id)
+            docker_manager.stop_container(container2_id)
+
+    @pytest.mark.asyncio
+    async def test_list_containers_workflow_integration(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test list_containers in a realistic workflow."""
+        from src.server import list_containers, start_container, stop_container
+
+        # Start with clean state
+        docker_manager.cleanup_all()
+
+        # Verify no containers
+        result1 = await list_containers({})
+        assert "No active containers found" in result1[0].text
+
+        # Start container using MCP tool
+        start_result = await start_container(
+            {"project_id": "my-api", "dotnet_version": "8", "ports": {5000: 0}}
+        )
+        assert len(start_result) == 1
+
+        # List should now show 1 container
+        result2 = await list_containers({})
+        response2 = result2[0].text
+        assert "Found 1 active container(s)" in response2
+        assert "my-api" in response2
+        assert "5000/tcp" in response2
+
+        # Stop container using MCP tool
+        stop_result = await stop_container({"project_id": "my-api"})
+        assert len(stop_result) == 1
+
+        # List should be empty again
+        result3 = await list_containers({})
+        assert "No active containers found" in result3[0].text

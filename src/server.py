@@ -19,6 +19,7 @@ from src.models import (
     ExecuteSnippetInput,
     GetLogsInput,
     KillProcessInput,
+    ListContainersInput,
     ListFilesInput,
     ReadFileInput,
     RunBackgroundInput,
@@ -595,6 +596,61 @@ This creates a much better visual experience for the user to review code before 
                 openWorldHint=False,
             ),
         ),
+        Tool(
+            name="dotnet_list_containers",
+            description="""List all active containers managed by this MCP server.
+
+**Purpose**: Discover what containers are currently running, their ports, and status.
+
+**When to use**:
+- Discovering active projects when you've forgotten project_ids
+- Checking which ports are mapped and available
+- Resource monitoring (5 container limit)
+- Debugging: "Why can't I access my API?" → Check actual port mapping
+- Understanding current state before operations
+
+**Information provided for each container**:
+- project_id: The identifier used in other tools
+- container_id: Docker container ID
+- name: Human-readable container name
+- status: Container status (running, paused, exited, etc.)
+- ports: Port mappings (e.g., {"5000/tcp": "8080"} means container port 5000 → host port 8080)
+
+**Common use cases**:
+
+1. **Find forgotten project_id**:
+   ```
+   dotnet_list_containers()  # Shows all project_ids
+   ```
+
+2. **Check web server ports**:
+   ```
+   dotnet_list_containers()  # See which host port to connect to
+   dotnet_test_endpoint(url="http://localhost:8080/health")
+   ```
+
+3. **Resource management**:
+   ```
+   dotnet_list_containers()  # Check how many containers running (max 5)
+   ```
+
+4. **Debugging port conflicts**:
+   ```
+   dotnet_list_containers()  # Verify expected ports are mapped
+   ```
+
+**No parameters required**: Lists ALL containers managed by this MCP server.
+
+**Returns**: List of containers with their details (project_id, status, ports, etc.)
+            """,
+            inputSchema=ListContainersInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=True,  # Read-only operation
+                destructiveHint=False,
+                idempotentHint=True,  # Same containers will be listed each time
+                openWorldHint=False,  # Closed world - only lists managed containers
+            ),
+        ),
     ]
 
 
@@ -623,6 +679,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await get_logs(arguments)
     elif name == "dotnet_kill_process":
         return await kill_process(arguments)
+    elif name == "dotnet_list_containers":
+        return await list_containers(arguments)
 
     raise ValueError(f"Unknown tool: {name}")
 
@@ -1525,6 +1583,85 @@ async def kill_process(arguments: dict[str, Any]) -> list[TextContent]:
         error_response = OutputFormatter().format_human_readable_response(
             status="error",
             error_message="Failed to kill processes",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def list_containers(arguments: dict[str, Any]) -> list[TextContent]:
+    """List all active containers managed by this MCP server.
+
+    Args:
+        arguments: Tool arguments (empty - no parameters required)
+
+    Returns:
+        List with single TextContent containing container list or error
+    """
+    try:
+        # Validate input (should be empty dict)
+        ListContainersInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Get all managed containers
+        containers = mgr.list_containers()
+
+        if not containers:
+            response = fmt.format_human_readable_response(
+                status="success",
+                output="No active containers found. Start a container with dotnet_start_container.",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Format container information
+        output_lines = [f"Found {len(containers)} active container(s):"]
+        output_lines.append("")
+
+        for idx, container in enumerate(containers, 1):
+            output_lines.append(f"{idx}. Project: {container.project_id}")
+            output_lines.append(f"   Container ID: {container.container_id[:12]}")
+            output_lines.append(f"   Name: {container.name}")
+            output_lines.append(f"   Status: {container.status}")
+
+            if container.ports:
+                output_lines.append("   Port Mappings:")
+                for container_port, host_port in container.ports.items():
+                    output_lines.append(f"     - Container {container_port} → Host {host_port}")
+            else:
+                output_lines.append("   Port Mappings: None")
+
+            output_lines.append("")
+
+        output = "\n".join(output_lines)
+
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=output,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to list containers",
             error_details=str(e),
         )
         return [TextContent(type="text", text=error_response)]
