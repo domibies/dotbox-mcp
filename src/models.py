@@ -415,3 +415,21 @@ class GetLogsInput(BaseModel):
         ge=1,
         le=3600,
     )
+
+
+class KillProcessInput(BaseModel):
+    """Input model for killing background processes in a container."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: str = Field(
+        ...,
+        description="Project identifier for the container",
+        min_length=1,
+        max_length=50,
+    )
+    process_pattern: str | None = Field(
+        default=None,
+        description="Process pattern to kill (e.g., 'dotnet run'). If not specified, kills all background dotnet processes.",
+        max_length=200,
+    )

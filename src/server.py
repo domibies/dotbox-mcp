@@ -17,6 +17,7 @@ from src.models import (
     ExecuteCommandInput,
     ExecuteSnippetInput,
     GetLogsInput,
+    KillProcessInput,
     ListFilesInput,
     ReadFileInput,
     RunBackgroundInput,
@@ -544,6 +545,55 @@ This creates a much better visual experience for the user to review code before 
                 openWorldHint=False,
             ),
         ),
+        Tool(
+            name="dotnet_kill_process",
+            description="""Kill background processes in a container.
+
+**Purpose**: Stop long-running background processes (like web servers) without stopping the container.
+
+**Use cases**:
+- Stop a running web server to make code changes
+- Kill stuck processes
+- Clean up before restarting with new configuration
+- Iterative development: run → test → kill → modify → run again
+
+**Why use this instead of dotnet_stop_container**:
+- Keeps container and files intact
+- Faster than recreating container
+- Preserves state for iterative development
+- Can selectively kill specific processes
+
+**Parameters**:
+- process_pattern (optional): Specific process pattern to kill (e.g., "dotnet run --project MyApi")
+- If omitted: Kills ALL background dotnet processes (safest default)
+
+**Common workflows**:
+
+1. **Iterative web development**:
+   ```
+   dotnet_run_background(...)  # Start server
+   dotnet_test_endpoint(...)   # Test it
+   # Want to make changes:
+   dotnet_kill_process()       # Stop server
+   dotnet_write_file(...)      # Update code
+   dotnet_run_background(...)  # Restart server
+   ```
+
+2. **Selective process termination**:
+   ```
+   dotnet_kill_process(process_pattern="dotnet run --project Api1")  # Kill specific app
+   ```
+
+**Returns**: Success message if processes were killed, or message if no processes found
+            """,
+            inputSchema=KillProcessInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=False,
+                destructiveHint=True,  # Kills processes
+                idempotentHint=False,  # Different processes may be running each time
+                openWorldHint=False,
+            ),
+        ),
     ]
 
 
@@ -570,6 +620,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await test_endpoint(arguments)
     elif name == "dotnet_get_logs":
         return await get_logs(arguments)
+    elif name == "dotnet_kill_process":
+        return await kill_process(arguments)
 
     raise ValueError(f"Unknown tool: {name}")
 
@@ -1384,6 +1436,90 @@ async def get_logs(arguments: dict[str, Any]) -> list[TextContent]:
         error_response = OutputFormatter().format_human_readable_response(
             status="error",
             error_message="Failed to get logs",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def kill_process(arguments: dict[str, Any]) -> list[TextContent]:
+    """Kill background processes in a container.
+
+    Args:
+        arguments: Tool arguments matching KillProcessInput schema
+
+    Returns:
+        List with single TextContent containing result
+    """
+    try:
+        # Validate input
+        input_data = KillProcessInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"No running container found for project '{input_data.project_id}'",
+                error_details="Start a container first with dotnet_start_container",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Build pkill command based on pattern
+        if input_data.process_pattern:
+            # Kill processes matching specific pattern
+            command = ["pkill", "-f", input_data.process_pattern]
+            desc = f"processes matching '{input_data.process_pattern}'"
+        else:
+            # Kill all background dotnet processes (common use case)
+            command = ["pkill", "-f", "dotnet"]
+            desc = "background dotnet processes"
+
+        # Execute kill command (pkill returns 0 if processes were killed, 1 if none found)
+        stdout, stderr, exit_code = mgr.execute_command(
+            container_id=container_id,
+            command=command,
+            timeout=5,
+        )
+
+        if exit_code == 0:
+            output = f"Successfully killed {desc} in container '{input_data.project_id}'"
+        elif exit_code == 1:
+            output = f"No {desc} found running in container '{input_data.project_id}'"
+        else:
+            output = f"Kill command completed with exit code {exit_code}\nStderr: {stderr}"
+
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=output,
+            project_id=input_data.project_id,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to kill processes",
             error_details=str(e),
         )
         return [TextContent(type="text", text=error_response)]

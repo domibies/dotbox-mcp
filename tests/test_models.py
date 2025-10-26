@@ -9,6 +9,7 @@ from src.models import (
     ExecuteCommandInput,
     ExecuteSnippetInput,
     GetLogsInput,
+    KillProcessInput,
     ListFilesInput,
     ReadFileInput,
     RunBackgroundInput,
@@ -803,3 +804,47 @@ class TestGetLogsInput:
 
         errors = exc_info.value.errors()
         assert any("since" in str(e["loc"]) for e in errors)
+
+
+class TestKillProcessInput:
+    """Test KillProcessInput model."""
+
+    def test_valid_input_no_pattern(self) -> None:
+        """Test creating model without process pattern (kills all dotnet)."""
+        input_data = KillProcessInput(
+            project_id="test-project",
+        )
+
+        assert input_data.project_id == "test-project"
+        assert input_data.process_pattern is None
+
+    def test_valid_input_with_pattern(self) -> None:
+        """Test creating model with specific process pattern."""
+        input_data = KillProcessInput(
+            project_id="test-api",
+            process_pattern="dotnet run",
+        )
+
+        assert input_data.project_id == "test-api"
+        assert input_data.process_pattern == "dotnet run"
+
+    def test_strips_whitespace(self) -> None:
+        """Test that whitespace is stripped from fields."""
+        input_data = KillProcessInput(
+            project_id="  test  ",
+            process_pattern="  dotnet run --project MyApp  ",
+        )
+
+        assert input_data.project_id == "test"
+        assert input_data.process_pattern == "dotnet run --project MyApp"
+
+    def test_pattern_too_long_rejected(self) -> None:
+        """Test that patterns over 200 chars are rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            KillProcessInput(
+                project_id="test",
+                process_pattern="x" * 201,
+            )
+
+        errors = exc_info.value.errors()
+        assert any("process_pattern" in str(e["loc"]) for e in errors)
