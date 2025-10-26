@@ -15,19 +15,19 @@ from src.formatter import OutputFormatter
 from src.models import DetailLevel, DotNetVersion
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def docker_manager() -> DockerContainerManager:
     """Create a real DockerContainerManager for E2E tests."""
     return DockerContainerManager()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def executor(docker_manager: DockerContainerManager) -> DotNetExecutor:
     """Create a real DotNetExecutor for E2E tests."""
     return DotNetExecutor(docker_manager=docker_manager)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def formatter() -> OutputFormatter:
     """Create an OutputFormatter for E2E tests."""
     return OutputFormatter()
