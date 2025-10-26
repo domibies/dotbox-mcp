@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from src.docker_manager import DockerContainerManager
 from src.executor import DotNetExecutor
 from src.formatter import OutputFormatter
-from src.models import DetailLevel, ExecuteSnippetInput
+from src.models import DetailLevel, ExecuteSnippetInput, StartContainerInput, StopContainerInput
 
 # Initialize MCP server
 server = Server("dotbox-mcp")
@@ -48,6 +48,10 @@ def _initialize_components() -> tuple[DockerContainerManager, DotNetExecutor, Ou
 @server.list_tools()  # type: ignore[misc, no-untyped-call]
 async def list_tools() -> list[Tool]:
     """List available MCP tools."""
+    # Perform lazy cleanup on every tool invocation
+    if docker_manager is not None:
+        docker_manager._lazy_cleanup(idle_timeout_minutes=30)
+
     return [
         Tool(
             name="dotnet_execute_snippet",
@@ -110,7 +114,58 @@ The container is automatically cleaned up after execution.
 - With version: "Newtonsoft.Json@13.0.3" (uses specific version)
             """,
             inputSchema=ExecuteSnippetInput.model_json_schema(),
-        )
+        ),
+        Tool(
+            name="dotnet_start_container",
+            description="""Start a persistent Docker container for a .NET project.
+
+This tool creates and starts a long-running container that can be used across multiple tool calls.
+Use this when you need to perform multiple operations (build, run, add files) on the same project.
+
+**When to use:**
+- Creating a new .NET project that will need multiple operations
+- Building and running a project in separate steps
+- Hosting a web API or long-running service
+
+**Container lifecycle:**
+- Containers auto-cleanup after 30 minutes of inactivity
+- Use dotnet_stop_container to manually stop when done
+- Activity tracking resets on each command execution
+
+**Workflow example:**
+1. Call dotnet_start_container with project_id and working_dir
+2. Perform operations (build, run, add files) using the project_id
+3. Container automatically cleans up after idle timeout
+
+**Returns:**
+- container_id: Docker container identifier
+- project_id: Project identifier (echoed back)
+- status: "running"
+            """,
+            inputSchema=StartContainerInput.model_json_schema(),
+        ),
+        Tool(
+            name="dotnet_stop_container",
+            description="""Stop and remove a persistent Docker container.
+
+This tool stops a running container and removes it from the system.
+The container is identified by its project_id.
+
+**When to use:**
+- After completing all operations on a project
+- To free up resources immediately (instead of waiting for auto-cleanup)
+- To restart a project with fresh state
+
+**Note:**
+- This operation is idempotent - stopping an already-stopped container will not error
+- Containers auto-cleanup after 30 minutes idle, so explicit stopping is optional
+
+**Returns:**
+- success: true if stopped successfully
+- project_id: Project identifier (echoed back)
+            """,
+            inputSchema=StopContainerInput.model_json_schema(),
+        ),
     ]
 
 
@@ -119,6 +174,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle MCP tool calls."""
     if name == "dotnet_execute_snippet":
         return await execute_snippet(arguments)
+    elif name == "dotnet_start_container":
+        return await start_container(arguments)
+    elif name == "dotnet_stop_container":
+        return await stop_container(arguments)
 
     raise ValueError(f"Unknown tool: {name}")
 
@@ -210,6 +269,150 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
         error_response = OutputFormatter().format_human_readable_response(
             status="error",
             error_message="An unexpected error occurred",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
+    """Start a persistent Docker container for a project.
+
+    Args:
+        arguments: Tool arguments matching StartContainerInput schema
+
+    Returns:
+        List with single TextContent containing response
+    """
+    try:
+        # Validate input
+        input_data = StartContainerInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Check if container already exists for this project
+        existing_container = mgr.get_container_by_project_id(input_data.project_id)
+        if existing_container:
+            response = fmt.format_human_readable_response(
+                status="success",
+                output=f"Container already running for project '{input_data.project_id}'",
+                container_id=existing_container,
+                project_id=input_data.project_id,
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Create new container
+        container_id = mgr.create_container(
+            dotnet_version=input_data.dotnet_version.value,
+            project_id=input_data.project_id,
+            working_dir=input_data.working_dir,
+        )
+
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=f"Started container for project '{input_data.project_id}'",
+            container_id=container_id,
+            project_id=input_data.project_id,
+            dotnet_version=input_data.dotnet_version.value,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        # Input validation error
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        # Docker not available
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker is not available",
+            error_details=str(e),
+            suggestions=[
+                "Ensure Docker is installed and running",
+                "Check Docker socket permissions",
+                "Verify Docker images are built (run docker/build-images.sh)",
+            ],
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        # Unexpected error
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to start container",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def stop_container(arguments: dict[str, Any]) -> list[TextContent]:
+    """Stop and remove a Docker container.
+
+    Args:
+        arguments: Tool arguments matching StopContainerInput schema
+
+    Returns:
+        List with single TextContent containing response
+    """
+    try:
+        # Validate input
+        input_data = StopContainerInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="success",
+                output=f"No running container found for project '{input_data.project_id}'",
+                project_id=input_data.project_id,
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Stop the container
+        mgr.stop_container(container_id)
+
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=f"Stopped container for project '{input_data.project_id}'",
+            project_id=input_data.project_id,
+            container_id=container_id,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        # Input validation error
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        # Docker not available
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker is not available",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        # Unexpected error
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to stop container",
             error_details=str(e),
         )
         return [TextContent(type="text", text=error_response)]

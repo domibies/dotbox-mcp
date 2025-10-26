@@ -1,5 +1,6 @@
 """Docker container management for .NET sandboxes."""
 
+import time
 import uuid
 from dataclasses import dataclass
 
@@ -39,6 +40,9 @@ class DockerContainerManager:
         except DockerException as e:
             raise DockerException(f"Docker is not available: {e}") from e
 
+        # Track last activity timestamp for each container (for idle cleanup)
+        self.last_activity: dict[str, float] = {}
+
     def create_container(
         self,
         dotnet_version: str,
@@ -72,6 +76,7 @@ class DockerContainerManager:
             "managed-by": self.LABEL_MANAGED_BY,
             "project-id": project_id,
             "dotnet-version": dotnet_version,
+            "created-at": str(int(time.time())),  # For fallback idle cleanup
         }
 
         # Configure volumes
@@ -98,7 +103,12 @@ class DockerContainerManager:
                 working_dir="/workspace",
                 remove=False,  # Don't auto-remove, we'll manage cleanup
             )
-            return str(container.id)
+            container_id = str(container.id)
+
+            # Track initial activity
+            self._update_activity(container_id)
+
+            return container_id
         except APIError as e:
             raise APIError(f"Failed to create container: {e}") from e
 
@@ -122,6 +132,9 @@ class DockerContainerManager:
             APIError: If command execution fails
         """
         try:
+            # Update activity timestamp before execution
+            self._update_activity(container_id)
+
             container = self.client.containers.get(container_id)
 
             # Execute command
@@ -158,9 +171,14 @@ class DockerContainerManager:
             container = self.client.containers.get(container_id)
             container.stop(timeout=10)
             container.remove()
+            # Remove from activity tracking
+            if container_id in self.last_activity:
+                del self.last_activity[container_id]
         except NotFound:
             # Container already removed - this is fine (idempotent)
-            pass
+            # Also remove from tracking if present
+            if container_id in self.last_activity:
+                del self.last_activity[container_id]
         except APIError as e:
             # Log but don't raise - best effort cleanup
             print(f"Warning: Failed to stop container {container_id}: {e}")
@@ -220,7 +238,103 @@ class DockerContainerManager:
                 container.stop(timeout=10)
                 container.remove()
                 count += 1
+                # Remove from activity tracking
+                if container.id in self.last_activity:
+                    del self.last_activity[container.id]
             except APIError as e:
                 print(f"Warning: Failed to cleanup container {container.id}: {e}")
 
         return count
+
+    def get_container_by_project_id(self, project_id: str) -> str | None:
+        """Find running container for a project.
+
+        Args:
+            project_id: Project identifier
+
+        Returns:
+            Container ID if found, None otherwise
+        """
+        try:
+            containers = self.client.containers.list(
+                filters={
+                    "label": [
+                        f"managed-by={self.LABEL_MANAGED_BY}",
+                        f"project-id={project_id}",
+                    ]
+                }
+            )
+
+            if containers:
+                return str(containers[0].id)
+            return None
+
+        except APIError:
+            return None
+
+    def _update_activity(self, container_id: str) -> None:
+        """Update last activity timestamp for a container.
+
+        Args:
+            container_id: Container identifier
+        """
+        self.last_activity[container_id] = time.time()
+
+    def _lazy_cleanup(self, idle_timeout_minutes: int = 30) -> int:
+        """Clean up idle containers (called on each tool invocation).
+
+        Removes containers that have been idle for longer than idle_timeout_minutes.
+        Falls back to creation time if activity tracking is not available.
+
+        Args:
+            idle_timeout_minutes: Idle timeout in minutes (default: 30)
+
+        Returns:
+            Number of containers cleaned up
+        """
+        current_time = time.time()
+        idle_threshold = idle_timeout_minutes * 60  # Convert to seconds
+
+        try:
+            containers = self.client.containers.list(
+                filters={"label": f"managed-by={self.LABEL_MANAGED_BY}"}
+            )
+
+            count = 0
+            for container in containers:
+                container_id = str(container.id)
+                should_cleanup = False
+
+                # Check if we have activity tracking for this container
+                if container_id in self.last_activity:
+                    # Use tracked activity timestamp
+                    idle_time = current_time - self.last_activity[container_id]
+                    should_cleanup = idle_time > idle_threshold
+                else:
+                    # Fallback: use creation time from label
+                    created_at_str = container.labels.get("created-at")
+                    if created_at_str:
+                        try:
+                            created_at = float(created_at_str)
+                            age = current_time - created_at
+                            should_cleanup = age > idle_threshold
+                        except ValueError:
+                            # Invalid timestamp, skip this container
+                            pass
+
+                if should_cleanup:
+                    try:
+                        container.stop(timeout=10)
+                        container.remove()
+                        count += 1
+                        # Remove from activity tracking
+                        if container_id in self.last_activity:
+                            del self.last_activity[container_id]
+                    except APIError as e:
+                        print(f"Warning: Failed to cleanup idle container {container_id}: {e}")
+
+            return count
+
+        except APIError as e:
+            print(f"Warning: Failed to list containers for lazy cleanup: {e}")
+            return 0

@@ -3,7 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
-from src.models import DetailLevel, DotNetVersion, ExecuteSnippetInput
+from src.models import (
+    DetailLevel,
+    DotNetVersion,
+    ExecuteSnippetInput,
+    StartContainerInput,
+    StopContainerInput,
+)
 
 
 class TestDotNetVersion:
@@ -196,3 +202,123 @@ class TestExecuteSnippetInput:
         str_variant = next((v for v in version_schema["anyOf"] if v["type"] == "string"), None)
         assert str_variant is not None
         assert set(str_variant["enum"]) == {"8", "9", "10-rc2"}
+
+
+class TestStartContainerInput:
+    """Test StartContainerInput model."""
+
+    def test_valid_minimal_input(self) -> None:
+        """Test creating model with minimal valid input."""
+        input_data = StartContainerInput(
+            project_id="my-project",
+            working_dir="/tmp/workspace",
+        )
+
+        assert input_data.project_id == "my-project"
+        assert input_data.working_dir == "/tmp/workspace"
+        assert input_data.dotnet_version == DotNetVersion.V8  # Default
+
+    def test_valid_full_input(self) -> None:
+        """Test creating model with all fields."""
+        input_data = StartContainerInput(
+            project_id="test-app-123",
+            dotnet_version=DotNetVersion.V9,
+            working_dir="/home/user/projects/test",
+        )
+
+        assert input_data.project_id == "test-app-123"
+        assert input_data.dotnet_version == DotNetVersion.V9
+        assert input_data.working_dir == "/home/user/projects/test"
+
+    def test_project_id_alphanumeric_with_hyphens_underscores(self) -> None:
+        """Test that project_id accepts alphanumeric with hyphens and underscores."""
+        valid_ids = ["project1", "my-project", "test_app", "app-123_v2"]
+
+        for project_id in valid_ids:
+            input_data = StartContainerInput(
+                project_id=project_id,
+                working_dir="/tmp",
+            )
+            assert input_data.project_id == project_id
+
+    def test_project_id_invalid_characters_rejected(self) -> None:
+        """Test that project_id with invalid characters is rejected."""
+        invalid_ids = ["project.name", "my project", "test@app", "app/123"]
+
+        for project_id in invalid_ids:
+            with pytest.raises(ValidationError) as exc_info:
+                StartContainerInput(
+                    project_id=project_id,
+                    working_dir="/tmp",
+                )
+
+            errors = exc_info.value.errors()
+            assert any("project_id" in str(e["loc"]) for e in errors)
+
+    def test_project_id_too_long_rejected(self) -> None:
+        """Test that project_id over 50 chars is rejected."""
+        long_id = "x" * 51
+
+        with pytest.raises(ValidationError) as exc_info:
+            StartContainerInput(
+                project_id=long_id,
+                working_dir="/tmp",
+            )
+
+        errors = exc_info.value.errors()
+        assert any("project_id" in str(e["loc"]) for e in errors)
+
+    def test_empty_working_dir_rejected(self) -> None:
+        """Test that empty working_dir is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            StartContainerInput(
+                project_id="test",
+                working_dir="",
+            )
+
+        errors = exc_info.value.errors()
+        assert any("working_dir" in str(e["loc"]) for e in errors)
+
+    def test_dotnet_version_from_integer(self) -> None:
+        """Test that dotnet_version accepts integer values."""
+        input_data = StartContainerInput(
+            project_id="test",
+            working_dir="/tmp",
+            dotnet_version=9,  # type: ignore[arg-type]
+        )
+
+        assert input_data.dotnet_version == DotNetVersion.V9
+
+
+class TestStopContainerInput:
+    """Test StopContainerInput model."""
+
+    def test_valid_input(self) -> None:
+        """Test creating model with valid input."""
+        input_data = StopContainerInput(project_id="my-project-123")
+
+        assert input_data.project_id == "my-project-123"
+
+    def test_strips_whitespace(self) -> None:
+        """Test that project_id is stripped."""
+        input_data = StopContainerInput(project_id="  my-project  ")
+
+        assert input_data.project_id == "my-project"
+
+    def test_empty_project_id_rejected(self) -> None:
+        """Test that empty project_id is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            StopContainerInput(project_id="")
+
+        errors = exc_info.value.errors()
+        assert any("project_id" in str(e["loc"]) for e in errors)
+
+    def test_project_id_too_long_rejected(self) -> None:
+        """Test that project_id over 50 chars is rejected."""
+        long_id = "x" * 51
+
+        with pytest.raises(ValidationError) as exc_info:
+            StopContainerInput(project_id=long_id)
+
+        errors = exc_info.value.errors()
+        assert any("project_id" in str(e["loc"]) for e in errors)

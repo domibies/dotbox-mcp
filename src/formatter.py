@@ -65,6 +65,8 @@ class OutputFormatter:
         error_details: str = "",
         build_errors: list[str] | None = None,
         suggestions: list[str] | None = None,
+        container_id: str = "",
+        project_id: str = "",
     ) -> str:
         """Format response in human-readable format.
 
@@ -79,6 +81,8 @@ class OutputFormatter:
             error_details: Detailed error information
             build_errors: List of build errors
             suggestions: List of suggestions
+            container_id: Docker container ID (optional)
+            project_id: Project identifier (optional)
 
         Returns:
             Human-readable formatted string
@@ -150,6 +154,18 @@ class OutputFormatter:
                 for suggestion in suggestions:
                     sections.append(f"  → {suggestion}")
                 sections.append("")
+
+        # Metadata (container_id, project_id)
+        if container_id or project_id:
+            metadata_parts = []
+            if project_id:
+                metadata_parts.append(f"Project ID: {project_id}")
+            if container_id:
+                metadata_parts.append(f"Container ID: {container_id[:12]}")  # Show short ID
+            if metadata_parts:
+                sections.append("Metadata:")
+                for part in metadata_parts:
+                    sections.append(f"  {part}")
 
         result = "\n".join(sections)
 

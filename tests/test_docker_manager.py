@@ -1,5 +1,6 @@
 """Tests for DockerContainerManager using mocked Docker SDK."""
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -272,3 +273,177 @@ class TestDockerContainerManager:
         # Should contain dotnet version and project id
         assert "dotnet8" in container_name.lower() or "8" in container_name
         assert "my-project" in container_name or "project" in container_name
+
+    def test_get_container_by_project_id_found(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test finding a container by project ID."""
+        mock_container = MagicMock()
+        mock_container.id = "container-123"
+        mock_docker_client.containers.list.return_value = [mock_container]
+
+        container_id = manager.get_container_by_project_id("test-project")
+
+        assert container_id == "container-123"
+        mock_docker_client.containers.list.assert_called_once()
+
+    def test_get_container_by_project_id_not_found(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test finding a non-existent container by project ID."""
+        mock_docker_client.containers.list.return_value = []
+
+        container_id = manager.get_container_by_project_id("nonexistent-project")
+
+        assert container_id is None
+
+    def test_activity_tracking_on_create(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test that creating a container tracks initial activity."""
+        mock_container = MagicMock()
+        mock_container.id = "test-container-id"
+        mock_docker_client.containers.run.return_value = mock_container
+
+        container_id = manager.create_container(
+            dotnet_version="8",
+            project_id="test-project",
+            working_dir="/workspace",
+        )
+
+        # Verify activity is tracked
+        assert container_id in manager.last_activity
+        assert isinstance(manager.last_activity[container_id], float)
+
+    def test_activity_tracking_on_execute(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test that executing a command updates activity timestamp."""
+        mock_container = MagicMock()
+        mock_result = MagicMock()
+        mock_result.output = b"output"
+        mock_result.exit_code = 0
+        mock_container.exec_run.return_value = mock_result
+        mock_docker_client.containers.get.return_value = mock_container
+
+        # Set initial timestamp
+        initial_time = time.time() - 100  # 100 seconds ago
+        manager.last_activity["test-container-id"] = initial_time
+
+        # Execute command
+        manager.execute_command("test-container-id", ["echo", "test"])
+
+        # Verify activity was updated
+        assert manager.last_activity["test-container-id"] > initial_time
+
+    def test_activity_tracking_removed_on_stop(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test that stopping a container removes it from activity tracking."""
+        mock_container = MagicMock()
+        mock_docker_client.containers.get.return_value = mock_container
+
+        # Add to activity tracking
+        manager.last_activity["test-container-id"] = time.time()
+
+        # Stop container
+        manager.stop_container("test-container-id")
+
+        # Verify removed from tracking
+        assert "test-container-id" not in manager.last_activity
+
+    def test_lazy_cleanup_idle_containers(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test that lazy cleanup removes idle containers."""
+        # Setup mock containers
+        mock_idle_container = MagicMock()
+        mock_idle_container.id = "idle-container"
+        mock_idle_container.labels = {"created-at": str(int(time.time()) - 2000)}
+
+        mock_active_container = MagicMock()
+        mock_active_container.id = "active-container"
+        mock_active_container.labels = {"created-at": str(int(time.time()))}
+
+        mock_docker_client.containers.list.return_value = [
+            mock_idle_container,
+            mock_active_container,
+        ]
+
+        # Add active container to tracking (recent activity)
+        manager.last_activity["active-container"] = time.time()
+
+        # Add idle container to tracking (old activity - more than 30 min ago)
+        manager.last_activity["idle-container"] = time.time() - 2000  # ~33 minutes ago
+
+        # Run lazy cleanup with 30 minute timeout
+        count = manager._lazy_cleanup(idle_timeout_minutes=30)
+
+        # Verify idle container was cleaned up
+        assert count == 1
+        mock_idle_container.stop.assert_called_once()
+        mock_idle_container.remove.assert_called_once()
+
+        # Verify active container was not touched
+        mock_active_container.stop.assert_not_called()
+        mock_active_container.remove.assert_not_called()
+
+    def test_lazy_cleanup_fallback_to_creation_time(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test that lazy cleanup uses creation time as fallback."""
+        # Container without activity tracking but old creation time
+        mock_old_container = MagicMock()
+        mock_old_container.id = "old-container-no-tracking"
+        mock_old_container.labels = {"created-at": str(int(time.time()) - 2000)}
+
+        mock_docker_client.containers.list.return_value = [mock_old_container]
+
+        # Don't add to activity tracking to test fallback
+        count = manager._lazy_cleanup(idle_timeout_minutes=30)
+
+        # Should cleanup based on creation time
+        assert count == 1
+        mock_old_container.stop.assert_called_once()
+
+    def test_lazy_cleanup_removes_from_tracking(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test that lazy cleanup removes containers from activity tracking."""
+        mock_container = MagicMock()
+        mock_container.id = "idle-container"
+        mock_container.labels = {"created-at": str(int(time.time()) - 2000)}
+
+        mock_docker_client.containers.list.return_value = [mock_container]
+
+        # Add to tracking
+        manager.last_activity["idle-container"] = time.time() - 2000
+
+        # Run cleanup
+        manager._lazy_cleanup(idle_timeout_minutes=30)
+
+        # Verify removed from tracking
+        assert "idle-container" not in manager.last_activity
+
+    def test_created_at_label_added(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test that containers are created with created-at timestamp label."""
+        mock_container = MagicMock()
+        mock_container.id = "test-container-id"
+        mock_docker_client.containers.run.return_value = mock_container
+
+        manager.create_container(
+            dotnet_version="8",
+            project_id="test-project",
+            working_dir="/workspace",
+        )
+
+        call_kwargs = mock_docker_client.containers.run.call_args[1]
+        labels = call_kwargs["labels"]
+
+        # Verify created-at label exists and is a valid timestamp
+        assert "created-at" in labels
+        created_at = int(labels["created-at"])
+        assert created_at > 0
+        assert created_at <= int(time.time())
