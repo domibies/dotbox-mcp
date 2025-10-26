@@ -6,9 +6,13 @@ from pydantic import ValidationError
 from src.models import (
     DetailLevel,
     DotNetVersion,
+    ExecuteCommandInput,
     ExecuteSnippetInput,
+    ListFilesInput,
+    ReadFileInput,
     StartContainerInput,
     StopContainerInput,
+    WriteFileInput,
 )
 
 
@@ -321,3 +325,252 @@ class TestStopContainerInput:
 
         errors = exc_info.value.errors()
         assert any("project_id" in str(e["loc"]) for e in errors)
+
+
+class TestWriteFileInput:
+    """Test WriteFileInput model."""
+
+    def test_valid_input(self) -> None:
+        """Test creating model with valid input."""
+        input_data = WriteFileInput(
+            project_id="test-project",
+            path="/workspace/Program.cs",
+            content='Console.WriteLine("Hello");',
+        )
+
+        assert input_data.project_id == "test-project"
+        assert input_data.path == "/workspace/Program.cs"
+        assert 'WriteLine("Hello")' in input_data.content
+
+    def test_valid_nested_path(self) -> None:
+        """Test that nested paths within workspace are allowed."""
+        input_data = WriteFileInput(
+            project_id="test",
+            path="/workspace/src/utils/Helper.cs",
+            content="// Helper code",
+        )
+
+        assert input_data.path == "/workspace/src/utils/Helper.cs"
+
+    def test_empty_content_allowed(self) -> None:
+        """Test that empty content is allowed."""
+        input_data = WriteFileInput(
+            project_id="test",
+            path="/workspace/empty.txt",
+            content="",
+        )
+
+        assert input_data.content == ""
+
+    def test_path_must_start_with_workspace(self) -> None:
+        """Test that path must start with /workspace/."""
+        with pytest.raises(ValidationError) as exc_info:
+            WriteFileInput(
+                project_id="test",
+                path="/etc/passwd",
+                content="malicious",
+            )
+
+        errors = exc_info.value.errors()
+        assert any("workspace" in str(e["msg"]).lower() for e in errors)
+
+    def test_path_cannot_contain_directory_traversal(self) -> None:
+        """Test that path cannot contain '..' for directory traversal."""
+        invalid_paths = [
+            "/workspace/../etc/passwd",
+            "/workspace/src/../../etc/passwd",
+            "/workspace/foo/../bar",
+        ]
+
+        for path in invalid_paths:
+            with pytest.raises(ValidationError) as exc_info:
+                WriteFileInput(
+                    project_id="test",
+                    path=path,
+                    content="test",
+                )
+
+            errors = exc_info.value.errors()
+            assert any("traversal" in str(e["msg"]).lower() for e in errors)
+
+    def test_content_too_long_rejected(self) -> None:
+        """Test that content over 100KB is rejected."""
+        long_content = "x" * 100001
+
+        with pytest.raises(ValidationError) as exc_info:
+            WriteFileInput(
+                project_id="test",
+                path="/workspace/large.txt",
+                content=long_content,
+            )
+
+        errors = exc_info.value.errors()
+        assert any("content" in str(e["loc"]) for e in errors)
+
+
+class TestReadFileInput:
+    """Test ReadFileInput model."""
+
+    def test_valid_input(self) -> None:
+        """Test creating model with valid input."""
+        input_data = ReadFileInput(
+            project_id="test-project",
+            path="/workspace/Program.cs",
+        )
+
+        assert input_data.project_id == "test-project"
+        assert input_data.path == "/workspace/Program.cs"
+
+    def test_valid_nested_path(self) -> None:
+        """Test that nested paths within workspace are allowed."""
+        input_data = ReadFileInput(
+            project_id="test",
+            path="/workspace/src/utils/Helper.cs",
+        )
+
+        assert input_data.path == "/workspace/src/utils/Helper.cs"
+
+    def test_path_must_start_with_workspace(self) -> None:
+        """Test that path must start with /workspace/."""
+        with pytest.raises(ValidationError) as exc_info:
+            ReadFileInput(
+                project_id="test",
+                path="/etc/passwd",
+            )
+
+        errors = exc_info.value.errors()
+        assert any("workspace" in str(e["msg"]).lower() for e in errors)
+
+    def test_path_cannot_contain_directory_traversal(self) -> None:
+        """Test that path cannot contain '..' for directory traversal."""
+        with pytest.raises(ValidationError) as exc_info:
+            ReadFileInput(
+                project_id="test",
+                path="/workspace/../etc/passwd",
+            )
+
+        errors = exc_info.value.errors()
+        assert any("traversal" in str(e["msg"]).lower() for e in errors)
+
+
+class TestListFilesInput:
+    """Test ListFilesInput model."""
+
+    def test_valid_input_default_path(self) -> None:
+        """Test creating model with default path."""
+        input_data = ListFilesInput(project_id="test-project")
+
+        assert input_data.project_id == "test-project"
+        assert input_data.path == "/workspace"  # Default
+
+    def test_valid_input_custom_path(self) -> None:
+        """Test creating model with custom path."""
+        input_data = ListFilesInput(
+            project_id="test-project",
+            path="/workspace/src",
+        )
+
+        assert input_data.path == "/workspace/src"
+
+    def test_path_must_start_with_workspace(self) -> None:
+        """Test that path must start with /workspace."""
+        with pytest.raises(ValidationError) as exc_info:
+            ListFilesInput(
+                project_id="test",
+                path="/etc",
+            )
+
+        errors = exc_info.value.errors()
+        assert any("workspace" in str(e["msg"]).lower() for e in errors)
+
+    def test_path_cannot_contain_directory_traversal(self) -> None:
+        """Test that path cannot contain '..' for directory traversal."""
+        with pytest.raises(ValidationError) as exc_info:
+            ListFilesInput(
+                project_id="test",
+                path="/workspace/../etc",
+            )
+
+        errors = exc_info.value.errors()
+        assert any("traversal" in str(e["msg"]).lower() for e in errors)
+
+
+class TestExecuteCommandInput:
+    """Test ExecuteCommandInput model."""
+
+    def test_valid_input_default_timeout(self) -> None:
+        """Test creating model with default timeout."""
+        input_data = ExecuteCommandInput(
+            project_id="test-project",
+            command=["dotnet", "build"],
+        )
+
+        assert input_data.project_id == "test-project"
+        assert input_data.command == ["dotnet", "build"]
+        assert input_data.timeout == 30  # Default
+
+    def test_valid_input_custom_timeout(self) -> None:
+        """Test creating model with custom timeout."""
+        input_data = ExecuteCommandInput(
+            project_id="test-project",
+            command=["dotnet", "run"],
+            timeout=60,
+        )
+
+        assert input_data.timeout == 60
+
+    def test_valid_complex_command(self) -> None:
+        """Test creating model with complex command."""
+        input_data = ExecuteCommandInput(
+            project_id="test",
+            command=["dotnet", "run", "--project", "/workspace/MyApp"],
+        )
+
+        assert len(input_data.command) == 4
+        assert input_data.command[3] == "/workspace/MyApp"
+
+    def test_empty_command_rejected(self) -> None:
+        """Test that empty command list is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            ExecuteCommandInput(
+                project_id="test",
+                command=[],
+            )
+
+        errors = exc_info.value.errors()
+        assert any("command" in str(e["loc"]) for e in errors)
+
+    def test_timeout_too_low_rejected(self) -> None:
+        """Test that timeout below 1 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            ExecuteCommandInput(
+                project_id="test",
+                command=["echo", "test"],
+                timeout=0,
+            )
+
+        errors = exc_info.value.errors()
+        assert any("timeout" in str(e["loc"]) for e in errors)
+
+    def test_timeout_too_high_rejected(self) -> None:
+        """Test that timeout above 300 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            ExecuteCommandInput(
+                project_id="test",
+                command=["sleep", "400"],
+                timeout=301,
+            )
+
+        errors = exc_info.value.errors()
+        assert any("timeout" in str(e["loc"]) for e in errors)
+
+    def test_command_with_empty_string_rejected(self) -> None:
+        """Test that command with empty string is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            ExecuteCommandInput(
+                project_id="test",
+                command=["dotnet", "", "build"],
+            )
+
+        errors = exc_info.value.errors()
+        assert any("command" in str(e["msg"]).lower() for e in errors)

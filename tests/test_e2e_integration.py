@@ -416,3 +416,192 @@ Console.WriteLine("Quick execution");
         # Should complete successfully with short code
         assert result["success"] is True
         assert "Quick execution" in result["stdout"]
+
+
+class TestE2EFileOperations:
+    """Test file operations in persistent containers."""
+
+    @pytest.mark.e2e
+    def test_write_and_read_file(self, docker_manager: DockerContainerManager) -> None:
+        """Test writing and reading files in a container."""
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-files",
+        )
+
+        # Write a file
+        content = "Hello from test file!"
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/test.txt",
+            content=content,
+        )
+
+        # Read the file back
+        read_content = docker_manager.read_file(
+            container_id=container_id,
+            path="/workspace/test.txt",
+        )
+
+        # Verify content matches
+        assert read_content.decode("utf-8") == content
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    def test_list_files_in_directory(self, docker_manager: DockerContainerManager) -> None:
+        """Test listing files in a container directory."""
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-list",
+        )
+
+        # Write multiple files
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/file1.txt",
+            content="Content 1",
+        )
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/file2.txt",
+            content="Content 2",
+        )
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/file3.txt",
+            content="Content 3",
+        )
+
+        # List files
+        files = docker_manager.list_files(
+            container_id=container_id,
+            path="/workspace",
+        )
+
+        # Verify all files are listed
+        assert "file1.txt" in files
+        assert "file2.txt" in files
+        assert "file3.txt" in files
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    def test_create_nested_directory_structure(self, docker_manager: DockerContainerManager) -> None:
+        """Test creating files in nested directories."""
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-nested",
+        )
+
+        # Write file with nested path (should create directories)
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/src/utils/Helper.cs",
+            content="// Helper class",
+        )
+
+        # Verify file exists
+        assert docker_manager.file_exists(
+            container_id=container_id,
+            path="/workspace/src/utils/Helper.cs",
+        )
+
+        # Read the file back
+        content = docker_manager.read_file(
+            container_id=container_id,
+            path="/workspace/src/utils/Helper.cs",
+        )
+        assert b"// Helper class" in content
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    def test_complete_project_workflow(self, docker_manager: DockerContainerManager) -> None:
+        """Test complete workflow: create files, build, run."""
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-workflow",
+        )
+
+        # Create .csproj file
+        csproj_content = """<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+"""
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/TestApp/TestApp.csproj",
+            content=csproj_content,
+        )
+
+        # Create Program.cs
+        program_content = 'Console.WriteLine("Hello from complete workflow!");'
+        docker_manager.write_file(
+            container_id=container_id,
+            dest_path="/workspace/TestApp/Program.cs",
+            content=program_content,
+        )
+
+        # Verify files exist
+        files = docker_manager.list_files(
+            container_id=container_id,
+            path="/workspace/TestApp",
+        )
+        assert "TestApp.csproj" in files
+        assert "Program.cs" in files
+
+        # Build the project
+        stdout, stderr, exit_code = docker_manager.execute_command(
+            container_id=container_id,
+            command=["dotnet", "build", "/workspace/TestApp"],
+            timeout=60,
+        )
+
+        # Verify build succeeded
+        assert exit_code == 0, f"Build failed: {stdout} {stderr}"
+
+        # Run the project
+        stdout, stderr, exit_code = docker_manager.execute_command(
+            container_id=container_id,
+            command=["dotnet", "run", "--project", "/workspace/TestApp"],
+            timeout=30,
+        )
+
+        # Verify execution succeeded
+        assert exit_code == 0
+        assert "Hello from complete workflow!" in stdout
+
+        # Cleanup
+        docker_manager.stop_container(container_id)
+
+    @pytest.mark.e2e
+    def test_file_not_found_error(self, docker_manager: DockerContainerManager) -> None:
+        """Test that reading non-existent file raises FileNotFoundError."""
+        # Create container
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-not-found",
+        )
+
+        # Try to read non-existent file
+        with pytest.raises(FileNotFoundError):
+            docker_manager.read_file(
+                container_id=container_id,
+                path="/workspace/nonexistent.txt",
+            )
+
+        # Cleanup
+        docker_manager.stop_container(container_id)

@@ -11,7 +11,16 @@ from pydantic import ValidationError
 from src.docker_manager import DockerContainerManager
 from src.executor import DotNetExecutor
 from src.formatter import OutputFormatter
-from src.models import DetailLevel, ExecuteSnippetInput, StartContainerInput, StopContainerInput
+from src.models import (
+    DetailLevel,
+    ExecuteCommandInput,
+    ExecuteSnippetInput,
+    ListFilesInput,
+    ReadFileInput,
+    StartContainerInput,
+    StopContainerInput,
+    WriteFileInput,
+)
 
 # Initialize MCP server
 server = Server("dotbox-mcp")
@@ -251,6 +260,165 @@ The container is identified by its project_id.
                 openWorldHint=True,
             ),
         ),
+        Tool(
+            name="dotnet_write_file",
+            description="""Write a file to a persistent container.
+
+**Purpose**: Create or update files in a running container for project development.
+
+**RECOMMENDED WORKFLOW FOR CODE FILES:**
+When writing .NET code files (.cs, .csproj, etc.):
+1. FIRST create an artifact to display the code with syntax highlighting
+2. THEN call this tool to write that code to the container
+3. Confirm the file was written successfully
+
+This creates a much better visual experience for the user to review code before writing.
+
+**Exception:** For simple config files or one-liners, you may skip the artifact.
+
+**When to use**:
+- Creating .NET project files (.csproj, Program.cs, etc.)
+- Writing source code files
+- Creating configuration files
+- Building multi-file projects
+
+**When NOT to use**:
+- For one-shot code execution (use dotnet_execute_snippet instead)
+- When container doesn't exist (start container first with dotnet_start_container)
+
+**Security**:
+- All paths must be within /workspace/ directory
+- Directory traversal (..) is blocked
+- Maximum file size: 100KB per file
+
+**Example workflow**:
+1. Start container: dotnet_start_container()
+2. Show code in artifact, then write: dotnet_write_file(project_id, "/workspace/MyApp/MyApp.csproj", csproj_content)
+3. Show code in artifact, then write: dotnet_write_file(project_id, "/workspace/MyApp/Program.cs", code)
+4. Build: dotnet_execute_command(project_id, ["dotnet", "build", "/workspace/MyApp"])
+5. Run: dotnet_execute_command(project_id, ["dotnet", "run", "--project", "/workspace/MyApp"])
+
+**Returns**: Success message or error details
+            """,
+            inputSchema=WriteFileInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        Tool(
+            name="dotnet_read_file",
+            description="""Read a file from a persistent container.
+
+**Purpose**: Read file contents from a running container (source code, logs, output files).
+
+**When to use**:
+- Reading source code files
+- Checking build output or logs
+- Extracting generated files
+- Debugging project structure
+
+**When NOT to use**:
+- When container doesn't exist
+- For binary files (only text files supported)
+
+**Security**:
+- All paths must be within /workspace/ directory
+- Directory traversal (..) is blocked
+
+**Common use cases**:
+- Read build logs after compilation
+- Extract program output from files
+- Verify file contents after writing
+- Debug project configuration
+
+**Returns**: File content as text or error if file doesn't exist
+            """,
+            inputSchema=ReadFileInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        Tool(
+            name="dotnet_list_files",
+            description="""List files in a container directory.
+
+**Purpose**: Explore directory contents in a running container.
+
+**When to use**:
+- Exploring project structure
+- Verifying files were created
+- Finding build artifacts
+- Checking workspace contents
+
+**When NOT to use**:
+- When container doesn't exist
+- For recursive directory listing (only lists immediate children)
+
+**Security**:
+- All paths must be within /workspace directory
+- Directory traversal (..) is blocked
+
+**Default behavior**:
+- Lists /workspace if no path specified
+- Shows files and subdirectories
+
+**Returns**: List of file/directory names or empty list if directory doesn't exist
+            """,
+            inputSchema=ListFilesInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        Tool(
+            name="dotnet_execute_command",
+            description="""Execute a command in a persistent container.
+
+**Purpose**: Run arbitrary commands (dotnet build, dotnet run, shell commands) in a container.
+
+**When to use**:
+- Building .NET projects
+- Running .NET applications
+- Executing dotnet CLI commands
+- Running shell commands for debugging
+
+**When NOT to use**:
+- For one-shot code execution (use dotnet_execute_snippet instead)
+- When container doesn't exist
+- For file operations (use dedicated file tools)
+
+**Common commands**:
+- Build: ["dotnet", "build", "/workspace/MyApp"]
+- Run: ["dotnet", "run", "--project", "/workspace/MyApp"]
+- Test: ["dotnet", "test", "/workspace/MyApp"]
+- List files: ["ls", "-la", "/workspace"]
+
+**Timeout**:
+- Default: 30 seconds
+- Range: 1-300 seconds
+- Adjust based on operation (builds may need 60+ seconds)
+
+**Returns**:
+- stdout: Command output
+- stderr: Error output
+- exit_code: 0 for success, non-zero for failure
+            """,
+            inputSchema=ExecuteCommandInput.model_json_schema(),
+            annotations=ToolAnnotations(
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=False,
+                openWorldHint=False,
+            ),
+        ),
     ]
 
 
@@ -263,6 +431,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await start_container(arguments)
     elif name == "dotnet_stop_container":
         return await stop_container(arguments)
+    elif name == "dotnet_write_file":
+        return await write_file(arguments)
+    elif name == "dotnet_read_file":
+        return await read_file(arguments)
+    elif name == "dotnet_list_files":
+        return await list_files(arguments)
+    elif name == "dotnet_execute_command":
+        return await execute_command(arguments)
 
     raise ValueError(f"Unknown tool: {name}")
 
@@ -516,6 +692,302 @@ async def stop_container(arguments: dict[str, Any]) -> list[TextContent]:
         error_response = OutputFormatter().format_human_readable_response(
             status="error",
             error_message="Failed to stop container",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def write_file(arguments: dict[str, Any]) -> list[TextContent]:
+    """Write a file to a container.
+
+    Args:
+        arguments: Tool arguments matching WriteFileInput schema
+
+    Returns:
+        List with single TextContent containing response
+    """
+    try:
+        # Validate input
+        input_data = WriteFileInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"No running container found for project '{input_data.project_id}'",
+                error_details="Start a container first with dotnet_start_container",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Write file to container
+        mgr.write_file(
+            container_id=container_id,
+            dest_path=input_data.path,
+            content=input_data.content,
+        )
+
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=f"File written successfully to {input_data.path}",
+            project_id=input_data.project_id,
+            container_id=container_id,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to write file",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def read_file(arguments: dict[str, Any]) -> list[TextContent]:
+    """Read a file from a container.
+
+    Args:
+        arguments: Tool arguments matching ReadFileInput schema
+
+    Returns:
+        List with single TextContent containing file content or error
+    """
+    try:
+        # Validate input
+        input_data = ReadFileInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"No running container found for project '{input_data.project_id}'",
+                error_details="Start a container first with dotnet_start_container",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Read file from container
+        try:
+            content_bytes = mgr.read_file(
+                container_id=container_id,
+                path=input_data.path,
+            )
+            content = content_bytes.decode("utf-8")
+
+            response = fmt.format_human_readable_response(
+                status="success",
+                output=content,
+                project_id=input_data.project_id,
+            )
+
+            return [TextContent(type="text", text=response)]
+
+        except FileNotFoundError:
+            error_response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"File not found: {input_data.path}",
+                error_details="Check the path and try again",
+            )
+            return [TextContent(type="text", text=error_response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to read file",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def list_files(arguments: dict[str, Any]) -> list[TextContent]:
+    """List files in a container directory.
+
+    Args:
+        arguments: Tool arguments matching ListFilesInput schema
+
+    Returns:
+        List with single TextContent containing file list or error
+    """
+    try:
+        # Validate input
+        input_data = ListFilesInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"No running container found for project '{input_data.project_id}'",
+                error_details="Start a container first with dotnet_start_container",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # List files in directory
+        files = mgr.list_files(
+            container_id=container_id,
+            path=input_data.path,
+        )
+
+        if not files:
+            output = f"Directory is empty or does not exist: {input_data.path}"
+        else:
+            output = f"Files in {input_data.path}:\n" + "\n".join(f"  {f}" for f in files)
+
+        response = fmt.format_human_readable_response(
+            status="success",
+            output=output,
+            project_id=input_data.project_id,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to list files",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+
+async def execute_command(arguments: dict[str, Any]) -> list[TextContent]:
+    """Execute a command in a container.
+
+    Args:
+        arguments: Tool arguments matching ExecuteCommandInput schema
+
+    Returns:
+        List with single TextContent containing command output or error
+    """
+    try:
+        # Validate input
+        input_data = ExecuteCommandInput(**arguments)
+
+        # Initialize components
+        mgr, _, fmt = _initialize_components()
+
+        # Find container by project ID
+        container_id = mgr.get_container_by_project_id(input_data.project_id)
+
+        if not container_id:
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"No running container found for project '{input_data.project_id}'",
+                error_details="Start a container first with dotnet_start_container",
+            )
+            return [TextContent(type="text", text=response)]
+
+        # Execute command
+        stdout, stderr, exit_code = mgr.execute_command(
+            container_id=container_id,
+            command=input_data.command,
+            timeout=input_data.timeout,
+        )
+
+        # Format output
+        output_lines = []
+        output_lines.append(f"Command: {' '.join(input_data.command)}")
+        output_lines.append(f"Exit code: {exit_code}")
+
+        if stdout:
+            output_lines.append(f"\nStdout:\n{stdout}")
+
+        if stderr:
+            output_lines.append(f"\nStderr:\n{stderr}")
+
+        output = "\n".join(output_lines)
+
+        response = fmt.format_human_readable_response(
+            status="success" if exit_code == 0 else "error",
+            output=output,
+            project_id=input_data.project_id,
+            container_id=container_id,
+        )
+
+        return [TextContent(type="text", text=response)]
+
+    except ValidationError as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Invalid input parameters",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except DockerException as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Docker operation failed",
+            error_details=str(e),
+        )
+        return [TextContent(type="text", text=error_response)]
+
+    except Exception as e:
+        error_response = OutputFormatter().format_human_readable_response(
+            status="error",
+            error_message="Failed to execute command",
             error_details=str(e),
         )
         return [TextContent(type="text", text=error_response)]
