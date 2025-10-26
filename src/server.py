@@ -4,6 +4,7 @@ import asyncio
 import sys
 from typing import Any
 
+import httpx
 from docker.errors import DockerException
 from mcp.server import Server
 from mcp.types import TextContent, Tool, ToolAnnotations
@@ -1293,16 +1294,20 @@ async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
         start_time = time.time()
 
         async with httpx.AsyncClient(timeout=input_data.timeout) as client:
-            request_kwargs = {
-                "url": input_data.url,
-                "headers": input_data.headers or {},
-            }
-
+            # Make request with explicit arguments for type safety
             if input_data.body and input_data.method in ["POST", "PUT", "PATCH"]:
-                request_kwargs["content"] = input_data.body
-
-            # Make request
-            response = await client.request(input_data.method, **request_kwargs)
+                response = await client.request(
+                    input_data.method,
+                    input_data.url,
+                    headers=input_data.headers,
+                    content=input_data.body,
+                )
+            else:
+                response = await client.request(
+                    input_data.method,
+                    input_data.url,
+                    headers=input_data.headers,
+                )
 
         response_time_ms = int((time.time() - start_time) * 1000)
 
