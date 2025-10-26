@@ -25,6 +25,12 @@ The server is designed around **agent-centric workflows** rather than low-level 
 
 **CRITICAL: These principles MUST be followed strictly**
 
+**Git Workflow:**
+- ✅ Always work on feature branches
+- ✅ Create PRs for all changes
+- ❌ NEVER commit directly to main
+- ❌ NEVER push to main without PR
+
 1. **Test-Driven Development (TDD)**:
    - Write tests FIRST, then implementation
    - All tests must pass before committing
@@ -43,7 +49,14 @@ The server is designed around **agent-centric workflows** rather than low-level 
    - One logical change per commit
    - Include test changes with implementation changes
 
-4. **Testing Standards**:
+4. **Git Workflow**:
+   - **ALWAYS work on feature branches** - never commit directly to main
+   - Create PRs for all changes
+   - Wait for CI to pass before merging
+   - Use squash or rebase merge to keep main clean
+   - Delete branch after merge
+
+5. **Testing Standards**:
    - Unit tests for all components
    - Integration tests for end-to-end workflows
    - Mock external dependencies (Docker, HTTP calls)
@@ -77,7 +90,11 @@ dotbox_mcp/
 ├── tests/
 │   ├── test_executor.py
 │   ├── test_project_manager.py
-│   └── test_integration.py
+│   ├── test_integration.py
+│   └── test_e2e_integration.py # Real E2E tests with Docker
+├── .github/
+│   ├── workflows/ci.yml       # CI/CD pipeline
+│   └── dependabot.yml         # Automated dependency updates
 └── examples/                   # Usage examples
 ```
 
@@ -152,26 +169,102 @@ cd docker && ./build-images.sh
 
 ## Development Workflow
 
+**IMPORTANT: Always work on feature branches and create PRs - NEVER push directly to main.**
+
 ### Setup
 ```bash
 # Install dependencies (uv)
 uv sync
 
-# Build Docker images
+# Build Docker images (for E2E tests)
 cd docker && ./build-images.sh
 ```
 
-### Testing
+### Branch-Based Development (REQUIRED)
+
+**Standard Workflow:**
 ```bash
-# Run unit tests
-uv run pytest tests/
+# 1. Create feature branch from main
+git checkout main
+git pull origin main
+git checkout -b feature/your-feature-name
 
-# Run integration tests (requires Docker)
-uv run pytest tests/test_integration.py
+# 2. Make changes following TDD
+#    - Write failing test
+#    - Implement feature
+#    - Make test pass
+#    - Refactor
+#    - Run: uv run pytest -v -m "not e2e"
 
-# Run with coverage
-uv run pytest --cov=src tests/
+# 3. Commit changes with conventional commits
+git add .
+git commit -m "feat: add your feature description"
+
+# 4. Push branch and create PR
+git push -u origin feature/your-feature-name
+# Then create PR via GitHub UI or gh CLI
+
+# 5. CI runs automatically (lint + unit tests)
+# 6. After PR approval and merge, E2E tests run on main
 ```
+
+**Branch Naming Conventions:**
+- `feature/description` - New features
+- `fix/description` - Bug fixes
+- `refactor/description` - Code refactoring
+- `docs/description` - Documentation changes
+- `chore/description` - Maintenance tasks
+
+**When to Create a PR:**
+- After completing a feature slice (tests passing)
+- When you want code review
+- Before merging to main (always)
+- Never push directly to main
+
+**Creating PRs with gh CLI:**
+```bash
+# After pushing your branch
+gh pr create --title "feat: your feature" --body "Description of changes"
+
+# Or use interactive mode
+gh pr create
+
+# View PR status
+gh pr status
+
+# Merge after approval
+gh pr merge --squash
+```
+
+### Testing
+
+**Test Strategy:**
+- **Unit tests**: Run automatically (mocked Docker) - fast feedback
+- **E2E tests**: Run ONLY when explicitly needed to validate a functional slice
+  - Requires Docker images built
+  - Actually executes C# code in real containers
+  - Slower but provides true end-to-end validation
+
+```bash
+# Run unit tests only (fast, default for development)
+uv run pytest -v -m "not e2e"
+
+# Run with coverage (unit tests only)
+uv run pytest --cov=src --cov-report=term-missing -m "not e2e"
+
+# Run E2E tests (ONLY when validating a functional slice)
+# Requires: cd docker && ./build-images.sh
+uv run pytest -v -m e2e
+
+# Run ALL tests (unit + E2E)
+uv run pytest -v
+```
+
+**When to run E2E tests:**
+- After completing a significant feature slice
+- Before creating a release
+- When making changes to executor or Docker integration
+- NOT during normal TDD red-green-refactor cycles
 
 ### Running the Server
 ```bash
@@ -217,6 +310,55 @@ DEBUG=1 uv run python -m src.server
 3. **Runtime Errors**: Capture exceptions, timeouts, OOM
 4. **Infrastructure Errors**: Docker unavailable, port conflicts, disk space
 5. **Resource Limits**: Too many containers, quota exceeded
+
+## CI/CD & Automation
+
+### GitHub Actions CI Strategy
+
+**PR Workflow (branch → PR → main):**
+
+1. **On PR Creation/Update** (fast feedback ~1 min):
+   - Linting (ruff)
+   - Type checking (mypy)
+   - Unit tests with mocked Docker
+   - Coverage reporting to Codecov
+   - **Must pass before merge allowed**
+
+2. **After PR Merge to Main** (post-merge validation ~5 min):
+   - E2E integration tests with real Docker containers
+   - Builds all .NET Docker images (8, 9, 10 RC2)
+   - Full end-to-end workflow validation
+   - **Alerts if E2E tests fail after merge**
+
+3. **Manual Trigger** (`workflow_dispatch`):
+   - Run E2E tests on demand for any branch
+   - Useful for validating major changes before PR
+
+**Protection Rules:**
+- Main branch requires PR (no direct commits)
+- PR requires passing CI checks
+- At least 1 approval recommended (for team projects)
+
+### Dependabot Configuration
+
+Automated dependency updates via `.github/dependabot.yml`:
+
+**Python Dependencies** (weekly on Monday):
+- Groups dev dependencies (pytest, ruff, mypy) together
+- Groups production dependencies (mcp, pydantic, httpx, docker) together
+- Limits to 5 open PRs to reduce noise
+- Conventional commit format: `chore(deps): update ...`
+
+**GitHub Actions** (weekly on Monday):
+- Groups all action updates together
+- Limits to 3 open PRs
+- Conventional commit format: `chore(ci): update ...`
+
+**Handling Dependabot PRs:**
+1. CI automatically runs on Dependabot PRs (unit tests only)
+2. Review changes and merge if tests pass
+3. E2E tests run after merge to main
+4. Rollback if E2E tests fail
 
 ## Implementation Priorities
 

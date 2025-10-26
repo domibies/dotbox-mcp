@@ -1,0 +1,123 @@
+name: CI
+
+# CI Strategy:
+# - Lint + Unit tests: Run on ALL PRs and pushes (fast feedback)
+# - E2E tests: Run ONLY on main branch pushes and manual triggers
+#   (keeps PR checks fast while ensuring post-merge validation)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  lint:
+    name: Lint and Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras
+
+      - name: Run ruff linting
+        run: |
+          uv run ruff check src tests
+
+      - name: Run mypy type checking
+        run: |
+          uv run mypy src
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras
+
+      - name: Run unit tests (excluding E2E)
+        run: |
+          uv run pytest -v -m "not e2e" --cov=src --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+        continue-on-error: true
+
+  e2e-tests:
+    name: E2E Integration Tests
+    runs-on: ubuntu-latest
+    # Only run E2E tests on main branch pushes or manual trigger
+    # This keeps PR feedback fast while ensuring post-merge validation
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build .NET 8 Docker image
+        run: |
+          cd docker
+          docker build -f dotnet-8.dockerfile -t dotnet-sandbox:8 .
+
+      - name: Build .NET 9 Docker image
+        run: |
+          cd docker
+          docker build -f dotnet-9.dockerfile -t dotnet-sandbox:9 .
+
+      - name: Build .NET 10 RC2 Docker image
+        run: |
+          cd docker
+          docker build -f dotnet-10-rc2.dockerfile -t dotnet-sandbox:10-rc2 .
+
+      - name: Verify Docker images
+        run: |
+          docker images | grep dotnet-sandbox
+
+      - name: Run E2E integration tests
+        run: |
+          uv run pytest -v -m e2e --tb=short --no-cov
+
+      - name: Cleanup Docker containers (if any)
+        if: always()
+        run: |
+          docker ps -a --filter "label=managed-by=dotbox-mcp" -q | xargs -r docker rm -f || true
+
