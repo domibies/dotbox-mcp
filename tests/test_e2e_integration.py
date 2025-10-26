@@ -7,6 +7,8 @@ These tests require:
 Run with: pytest -v -m e2e tests/test_e2e_integration.py
 """
 
+from typing import Generator
+
 import pytest
 
 from src.docker_manager import DockerContainerManager
@@ -34,7 +36,7 @@ def formatter() -> OutputFormatter:
 
 
 @pytest.fixture(autouse=True)
-def cleanup_containers(docker_manager: DockerContainerManager) -> None:
+def cleanup_containers(docker_manager: DockerContainerManager) -> Generator[None, None, None]:
     """Cleanup all containers after each test."""
     yield
     # Cleanup after test

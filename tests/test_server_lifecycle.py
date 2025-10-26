@@ -84,7 +84,7 @@ class TestServerLifecycle:
         """Test that background cleanup task runs periodically."""
         cleanup_count = 0
 
-        async def mock_cleanup_task(interval_seconds: int) -> None:
+        async def mock_cleanup_task(interval_seconds: float) -> None:
             """Mock cleanup task that runs a few times."""
             nonlocal cleanup_count
             for _ in range(3):
@@ -127,8 +127,6 @@ class TestServerLifecycle:
         self, manager: DockerContainerManager, mock_docker_client: MagicMock
     ) -> None:
         """Test that cleanup_all removes activity tracking even if container doesn't exist."""
-        from docker.errors import NotFound
-
         # Container not found
         mock_docker_client.containers.list.return_value = []
 
