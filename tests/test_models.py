@@ -241,12 +241,15 @@ class TestStartContainerInput:
     def test_auto_generated_project_id_includes_version(self) -> None:
         """Test that auto-generated project_id includes .NET version."""
         input_v8 = StartContainerInput(dotnet_version=DotNetVersion.V8)
+        assert input_v8.project_id is not None
         assert input_v8.project_id.startswith("dotnet8-proj-")
 
         input_v9 = StartContainerInput(dotnet_version=DotNetVersion.V9)
+        assert input_v9.project_id is not None
         assert input_v9.project_id.startswith("dotnet9-proj-")
 
         input_v10 = StartContainerInput(dotnet_version=DotNetVersion.V10_RC2)
+        assert input_v10.project_id is not None
         assert input_v10.project_id.startswith("dotnet10-rc2-proj-")
 
     def test_auto_generated_project_id_is_unique(self) -> None:

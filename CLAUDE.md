@@ -48,6 +48,7 @@ The server is designed around **agent-centric workflows** rather than low-level 
    - Only commit when all tests pass
    - One logical change per commit
    - Include test changes with implementation changes
+   - **Do NOT include AI attribution** (no "Generated with Claude Code" or "Co-Authored-By: Claude")
 
 4. **Git Workflow**:
    - **ALWAYS work on feature branches** - never commit directly to main

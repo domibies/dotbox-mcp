@@ -1,5 +1,6 @@
 """FastMCP server for .NET code execution in Docker containers."""
 
+import asyncio
 import sys
 from typing import Any
 
@@ -993,28 +994,75 @@ async def execute_command(arguments: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=error_response)]
 
 
+async def background_cleanup_task(interval_seconds: int = 300) -> None:
+    """Run periodic container cleanup.
+
+    Args:
+        interval_seconds: Cleanup interval in seconds (default: 300 = 5 minutes)
+    """
+    global docker_manager
+
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            if docker_manager is not None:
+                count = docker_manager._lazy_cleanup(idle_timeout_minutes=30)
+                if count > 0:
+                    print(f"Background cleanup: removed {count} idle container(s)", file=sys.stderr)
+        except asyncio.CancelledError:
+            print("Background cleanup task cancelled", file=sys.stderr)
+            raise
+        except Exception as e:
+            print(f"Background cleanup error: {e}", file=sys.stderr)
+            # Continue running despite errors
+
+
+def cleanup_all_containers() -> None:
+    """Clean up all containers on server shutdown."""
+    global docker_manager
+
+    if docker_manager is not None:
+        try:
+            count = docker_manager.cleanup_all()
+            if count > 0:
+                print(f"Shutdown cleanup: removed {count} container(s)", file=sys.stderr)
+        except Exception as e:
+            print(f"Shutdown cleanup error: {e}", file=sys.stderr)
+
+
 def main() -> None:
     """Run the MCP server."""
-    import asyncio
-
     from mcp.server.stdio import stdio_server
 
     async def run_server() -> None:
-        """Run server with stdio transport."""
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options(),
-            )
+        """Run server with stdio transport and background cleanup."""
+        # Start background cleanup task
+        cleanup_task = asyncio.create_task(background_cleanup_task(interval_seconds=300))
+
+        try:
+            async with stdio_server() as (read_stream, write_stream):
+                await server.run(
+                    read_stream,
+                    write_stream,
+                    server.create_initialization_options(),
+                )
+        finally:
+            # Cancel background task on shutdown
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
 
     try:
         asyncio.run(run_server())
     except KeyboardInterrupt:
         print("\nShutting down server...", file=sys.stderr)
+        cleanup_all_containers()
         sys.exit(0)
     except Exception as e:
         print(f"Fatal error: {e}", file=sys.stderr)
+        cleanup_all_containers()
         sys.exit(1)
 
 
