@@ -93,8 +93,11 @@ dotbox_mcp/
 │   ├── test_integration.py
 │   └── test_e2e_integration.py # Real E2E tests with Docker
 ├── .github/
-│   ├── workflows/ci.yml       # CI/CD pipeline
+│   ├── workflows/
+│   │   ├── ci.yml             # CI/CD pipeline
+│   │   └── release-please.yml # Automated release management
 │   └── dependabot.yml         # Automated dependency updates
+├── CHANGELOG.md               # Auto-generated changelog
 └── examples/                   # Usage examples
 ```
 
@@ -359,6 +362,146 @@ Automated dependency updates via `.github/dependabot.yml`:
 2. Review changes and merge if tests pass
 3. E2E tests run after merge to main
 4. Rollback if E2E tests fail
+
+## Release Management
+
+### Semantic Versioning Strategy
+
+**Version Format:** `MAJOR.MINOR.PATCH[-prerelease]`
+
+**Version Semantics:**
+- **MAJOR** (0→1, 1→2): Breaking changes in tool signatures, removed tools, incompatible API changes
+- **MINOR** (0.1→0.2): New tools, new features, backward-compatible enhancements
+- **PATCH** (0.1.0→0.1.1): Bug fixes, documentation, performance improvements (no new features)
+
+**Pre-1.0 Development:**
+- While `0.x.y`, breaking changes allowed in MINOR bumps
+- `0.x` = unstable API, rapid iteration phase
+- `1.0.0` = stable API, backward compatibility guaranteed
+
+**Example Version History:**
+```
+0.1.0 → Initial version
+0.2.0 → Add execute_snippet, create_project tools
+0.3.0 → Add web hosting, package management
+0.4.0 → Add project inspection tools
+...
+0.9.0 → Feature complete, testing phase
+1.0.0-rc.1 → Release candidate
+1.0.0 → Stable release! 🎉
+1.0.1 → Bug fix (no new features)
+1.1.0 → New tool added (backward compatible)
+2.0.0 → Breaking API change
+```
+
+### Automated Release Process (release-please)
+
+**How It Works:**
+
+1. **Daily Development** - Merge PRs to main (version stays unchanged)
+   ```bash
+   # Multiple PRs merged:
+   feat: add new tool    → version stays 0.1.0
+   fix: bug in executor  → version stays 0.1.0
+   feat: add another tool → version stays 0.1.0
+   ```
+
+2. **Release Please Bot** - Automatically runs on every push to main
+   - Analyzes commits since last release
+   - Determines version bump based on conventional commits:
+     - `feat:` → MINOR bump (0.1.0 → 0.2.0)
+     - `fix:` → PATCH bump (0.1.0 → 0.1.1)
+     - `feat!:` or `BREAKING CHANGE:` → MAJOR bump (0.x.y → 1.0.0)
+   - Creates/updates a **Release PR** with:
+     - Version bump in `pyproject.toml`
+     - Generated `CHANGELOG.md`
+     - Title: `chore(main): release 0.2.0`
+
+3. **Review Release PR** - Developer reviews before merging
+   - Check CHANGELOG accuracy
+   - Verify version bump is appropriate
+   - Can manually edit if needed
+
+4. **Merge Release PR** - Triggers automatic release
+   ```bash
+   gh pr merge <release-pr-number> --squash
+   ```
+
+5. **Automated Post-Merge Actions**
+   - Creates git tag (e.g., `v0.2.0`)
+   - Creates GitHub Release with changelog
+   - (Optional) Publishes to PyPI
+   - (Optional) Updates MCP registry
+
+### Conventional Commit Format
+
+**Required for automatic version detection:**
+
+```bash
+# Features (MINOR bump)
+feat: add execute snippet tool
+feat(docker): support custom resource limits
+
+# Bug Fixes (PATCH bump)
+fix: handle timeout correctly
+fix(executor): parse build errors properly
+
+# Breaking Changes (MAJOR bump - pre-1.0: MINOR)
+feat!: change tool input schema
+feat: add new parameter
+BREAKING CHANGE: removes legacy parameter
+
+# Other types (no version bump, but in CHANGELOG)
+docs: update README
+refactor: simplify error handling
+perf: optimize container creation
+test: add E2E tests
+chore: update dependencies
+ci: improve workflow
+```
+
+### When to Release
+
+**Trigger Points:**
+- ✅ Significant features complete (2-3 new tools)
+- ✅ Breaking changes (release ASAP)
+- ✅ Critical bug fixes (patch release immediately)
+- ✅ Regular cadence (optional: weekly/bi-weekly if changes exist)
+- ✅ Before demos/presentations (stable version)
+
+**Release Frequency:**
+- **Pre-1.0**: Every 1-2 weeks (or when ready)
+- **Post-1.0**: Monthly for features, immediately for critical bugs
+
+### Manual Release Process (if needed)
+
+**Force a release without waiting for Release Please:**
+
+```bash
+# 1. Manually bump version in pyproject.toml
+# version = "0.2.0"
+
+# 2. Update CHANGELOG.md manually
+
+# 3. Commit and tag
+git add pyproject.toml CHANGELOG.md
+git commit -m "chore(release): 0.2.0"
+git tag v0.2.0
+git push origin main --tags
+
+# 4. Create GitHub Release manually
+gh release create v0.2.0 --generate-notes
+```
+
+### Release Checklist
+
+Before merging a release PR:
+- [ ] Version number is correct (follows SemVer)
+- [ ] CHANGELOG.md accurately reflects changes
+- [ ] All CI checks passing (unit + E2E tests)
+- [ ] Documentation updated if API changed
+- [ ] Breaking changes clearly documented
+- [ ] Migration guide provided (if breaking changes)
 
 ## Implementation Priorities
 
