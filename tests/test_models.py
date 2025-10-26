@@ -10,6 +10,7 @@ from src.models import (
     ExecuteSnippetInput,
     GetLogsInput,
     KillProcessInput,
+    ListContainersInput,
     ListFilesInput,
     ReadFileInput,
     RunBackgroundInput,
@@ -848,3 +849,31 @@ class TestKillProcessInput:
 
         errors = exc_info.value.errors()
         assert any("process_pattern" in str(e["loc"]) for e in errors)
+
+
+class TestListContainersInput:
+    """Test ListContainersInput model."""
+
+    def test_valid_input_no_parameters(self) -> None:
+        """Test creating model with no parameters (lists all containers)."""
+        input_data = ListContainersInput()
+
+        # Should successfully create with no fields
+        assert input_data is not None
+        assert isinstance(input_data, ListContainersInput)
+
+    def test_valid_input_from_empty_dict(self) -> None:
+        """Test creating model from empty dict."""
+        input_data = ListContainersInput(**{})
+
+        assert input_data is not None
+        assert isinstance(input_data, ListContainersInput)
+
+    def test_model_json_schema(self) -> None:
+        """Test that JSON schema is generated correctly."""
+        schema = ListContainersInput.model_json_schema()
+
+        assert schema is not None
+        assert "properties" in schema
+        # Should have no required fields
+        assert schema.get("required", []) == []

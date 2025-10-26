@@ -374,3 +374,91 @@ class TestMCPIntegration:
         assert parsed_error["status"] == "error"
         assert parsed_error["error"]["type"] == "BuildError"
         assert len(parsed_error["error"]["suggestions"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_list_containers_handler_no_containers(
+        self, mock_docker_client: MagicMock
+    ) -> None:
+        """Test list_containers handler when no containers are running."""
+        # Mock empty container list
+        mock_docker_client.containers.list.return_value = []
+
+        with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
+            # Reset global state to force re-initialization with mocked client
+            import src.server
+            src.server.docker_manager = None
+            src.server.executor = None
+            src.server.formatter = None
+
+            from src.server import list_containers
+
+            # Call handler
+            result = await list_containers({})
+
+            # Verify response
+            assert len(result) == 1
+            response_text = result[0].text
+            assert "No active containers found" in response_text
+            assert "dotnet_start_container" in response_text
+
+    @pytest.mark.asyncio
+    async def test_list_containers_handler_with_containers(
+        self, mock_docker_client: MagicMock
+    ) -> None:
+        """Test list_containers handler with active containers."""
+        # Mock container data
+        mock_container1 = MagicMock()
+        mock_container1.id = "abc123def456"
+        mock_container1.name = "dotnet8-proj-x7k2p9"
+        mock_container1.status = "running"
+        mock_container1.labels = {
+            "managed-by": "dotbox-mcp",
+            "project-id": "my-api",
+        }
+        mock_container1.attrs = {
+            "NetworkSettings": {
+                "Ports": {
+                    "5000/tcp": [{"HostPort": "8080"}],
+                    "5001/tcp": [{"HostPort": "8081"}],
+                }
+            }
+        }
+
+        mock_container2 = MagicMock()
+        mock_container2.id = "xyz789abc123"
+        mock_container2.name = "dotnet9-proj-a1b2c3"
+        mock_container2.status = "running"
+        mock_container2.labels = {
+            "managed-by": "dotbox-mcp",
+            "project-id": "test-project",
+        }
+        mock_container2.attrs = {"NetworkSettings": {"Ports": {}}}
+
+        mock_docker_client.containers.list.return_value = [
+            mock_container1,
+            mock_container2,
+        ]
+
+        with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
+            # Reset global state to force re-initialization with mocked client
+            import src.server
+            src.server.docker_manager = None
+            src.server.executor = None
+            src.server.formatter = None
+
+            from src.server import list_containers
+
+            # Call handler
+            result = await list_containers({})
+
+            # Verify response
+            assert len(result) == 1
+            response_text = result[0].text
+            assert "Found 2 active container(s)" in response_text
+            assert "my-api" in response_text
+            assert "test-project" in response_text
+            assert "abc123def456"[:12] in response_text
+            assert "xyz789abc123"[:12] in response_text
+            assert "5000/tcp" in response_text
+            assert "8080" in response_text
+            assert "Port Mappings: None" in response_text  # Second container has no ports
