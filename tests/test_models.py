@@ -295,6 +295,63 @@ class TestStartContainerInput:
 
         assert input_data.dotnet_version == DotNetVersion.V9
 
+    def test_ports_none_by_default(self) -> None:
+        """Test that ports field defaults to None."""
+        input_data = StartContainerInput(project_id="test")
+
+        assert input_data.ports is None
+
+    def test_valid_port_mapping(self) -> None:
+        """Test creating model with valid port mapping."""
+        input_data = StartContainerInput(
+            project_id="test",
+            ports={5000: 8080, 5001: 8081},
+        )
+
+        assert input_data.ports == {5000: 8080, 5001: 8081}
+
+    def test_port_mapping_with_auto_assign(self) -> None:
+        """Test port mapping with 0 for auto-assignment."""
+        input_data = StartContainerInput(
+            project_id="test",
+            ports={5000: 0},  # 0 means Docker auto-assigns host port
+        )
+
+        assert input_data.ports == {5000: 0}
+
+    def test_invalid_port_negative_rejected(self) -> None:
+        """Test that negative ports are rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            StartContainerInput(
+                project_id="test",
+                ports={-1: 8080},
+            )
+
+        errors = exc_info.value.errors()
+        assert any("ports" in str(e["loc"]) for e in errors)
+
+    def test_invalid_port_too_large_rejected(self) -> None:
+        """Test that ports over 65535 are rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            StartContainerInput(
+                project_id="test",
+                ports={5000: 70000},
+            )
+
+        errors = exc_info.value.errors()
+        assert any("ports" in str(e["loc"]) for e in errors)
+
+    def test_invalid_port_zero_container_rejected(self) -> None:
+        """Test that container port cannot be 0 (only host port can)."""
+        with pytest.raises(ValidationError) as exc_info:
+            StartContainerInput(
+                project_id="test",
+                ports={0: 8080},
+            )
+
+        errors = exc_info.value.errors()
+        assert any("ports" in str(e["loc"]) for e in errors)
+
 
 class TestStopContainerInput:
     """Test StopContainerInput model."""

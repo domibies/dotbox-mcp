@@ -101,6 +101,10 @@ class StartContainerInput(BaseModel):
         default=DotNetVersion.V8,
         description=".NET version: 8, 9, or '10-rc2' (accepts integer or string)",
     )
+    ports: dict[int, int] | None = Field(
+        default=None,
+        description="Port mapping {container_port: host_port}. Use 0 for auto-assignment (e.g., {5000: 0} auto-assigns host port). Container port cannot be 0.",
+    )
 
     @field_validator("dotnet_version", mode="before")
     @classmethod
@@ -111,6 +115,36 @@ class StartContainerInput(BaseModel):
         if isinstance(v, str):
             return v
         return v.value if hasattr(v, "value") else str(v)
+
+    @field_validator("ports")
+    @classmethod
+    def validate_ports(cls, v: dict[int, int] | None) -> dict[int, int] | None:
+        """Validate port mapping."""
+        if v is None:
+            return v
+
+        for container_port, host_port in v.items():
+            # Container port cannot be 0 (reserved)
+            if container_port <= 0:
+                raise ValueError(
+                    f"Container port must be between 1-65535, got {container_port}"
+                )
+            if container_port > 65535:
+                raise ValueError(
+                    f"Container port must be between 1-65535, got {container_port}"
+                )
+
+            # Host port can be 0 (auto-assign) or 1-65535
+            if host_port < 0:
+                raise ValueError(
+                    f"Host port must be 0 (auto-assign) or between 1-65535, got {host_port}"
+                )
+            if host_port > 65535:
+                raise ValueError(
+                    f"Host port must be 0 (auto-assign) or between 1-65535, got {host_port}"
+                )
+
+        return v
 
     @model_validator(mode="after")
     def generate_project_id_if_needed(self) -> "StartContainerInput":
