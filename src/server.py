@@ -586,11 +586,28 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
         container_id = mgr.create_container(
             dotnet_version=input_data.dotnet_version.value,
             project_id=input_data.project_id,  # type: ignore[arg-type]
+            port_mapping=input_data.ports,
         )
+
+        # Get port information if ports were mapped
+        port_info = {}
+        if input_data.ports:
+            # Get actual mapped ports from container
+            containers = mgr.list_containers()
+            for container in containers:
+                if container.container_id == container_id:
+                    port_info = container.ports
+                    break
+
+        # Build output message
+        output_msg = f"Started container for project '{input_data.project_id}'"
+        if port_info:
+            port_list = [f"{container_port} → {host_port}" for container_port, host_port in port_info.items()]
+            output_msg += f"\nPorts: {', '.join(port_list)}"
 
         response = fmt.format_human_readable_response(
             status="success",
-            output=f"Started container for project '{input_data.project_id}'",
+            output=output_msg,
             container_id=container_id,
             project_id=input_data.project_id,  # type: ignore[arg-type]
             dotnet_version=input_data.dotnet_version.value,
