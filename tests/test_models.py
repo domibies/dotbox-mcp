@@ -207,15 +207,21 @@ class TestExecuteSnippetInput:
 class TestStartContainerInput:
     """Test StartContainerInput model."""
 
-    def test_valid_minimal_input(self) -> None:
-        """Test creating model with minimal valid input."""
-        input_data = StartContainerInput(
-            project_id="my-project",
-            working_dir="/tmp/workspace",
-        )
+    def test_valid_minimal_input_no_project_id(self) -> None:
+        """Test creating model with no project_id (should auto-generate)."""
+        input_data = StartContainerInput()
+
+        # Should have auto-generated project_id with format: dotnet{version}-proj-{6chars}
+        assert input_data.project_id is not None
+        assert input_data.project_id.startswith("dotnet8-proj-")  # Default is .NET 8
+        assert len(input_data.project_id) == len("dotnet8-proj-abcdef")
+        assert input_data.dotnet_version == DotNetVersion.V8  # Default
+
+    def test_valid_minimal_input_with_project_id(self) -> None:
+        """Test creating model with explicit project_id."""
+        input_data = StartContainerInput(project_id="my-project")
 
         assert input_data.project_id == "my-project"
-        assert input_data.working_dir == "/tmp/workspace"
         assert input_data.dotnet_version == DotNetVersion.V8  # Default
 
     def test_valid_full_input(self) -> None:
@@ -223,22 +229,33 @@ class TestStartContainerInput:
         input_data = StartContainerInput(
             project_id="test-app-123",
             dotnet_version=DotNetVersion.V9,
-            working_dir="/home/user/projects/test",
         )
 
         assert input_data.project_id == "test-app-123"
         assert input_data.dotnet_version == DotNetVersion.V9
-        assert input_data.working_dir == "/home/user/projects/test"
+
+    def test_auto_generated_project_id_includes_version(self) -> None:
+        """Test that auto-generated project_id includes .NET version."""
+        input_v8 = StartContainerInput(dotnet_version=DotNetVersion.V8)
+        assert input_v8.project_id.startswith("dotnet8-proj-")
+
+        input_v9 = StartContainerInput(dotnet_version=DotNetVersion.V9)
+        assert input_v9.project_id.startswith("dotnet9-proj-")
+
+        input_v10 = StartContainerInput(dotnet_version=DotNetVersion.V10_RC2)
+        assert input_v10.project_id.startswith("dotnet10-rc2-proj-")
+
+    def test_auto_generated_project_id_is_unique(self) -> None:
+        """Test that auto-generated project_ids are unique."""
+        ids = {StartContainerInput().project_id for _ in range(10)}
+        assert len(ids) == 10  # All unique
 
     def test_project_id_alphanumeric_with_hyphens_underscores(self) -> None:
         """Test that project_id accepts alphanumeric with hyphens and underscores."""
         valid_ids = ["project1", "my-project", "test_app", "app-123_v2"]
 
         for project_id in valid_ids:
-            input_data = StartContainerInput(
-                project_id=project_id,
-                working_dir="/tmp",
-            )
+            input_data = StartContainerInput(project_id=project_id)
             assert input_data.project_id == project_id
 
     def test_project_id_invalid_characters_rejected(self) -> None:
@@ -247,10 +264,7 @@ class TestStartContainerInput:
 
         for project_id in invalid_ids:
             with pytest.raises(ValidationError) as exc_info:
-                StartContainerInput(
-                    project_id=project_id,
-                    working_dir="/tmp",
-                )
+                StartContainerInput(project_id=project_id)
 
             errors = exc_info.value.errors()
             assert any("project_id" in str(e["loc"]) for e in errors)
@@ -260,30 +274,15 @@ class TestStartContainerInput:
         long_id = "x" * 51
 
         with pytest.raises(ValidationError) as exc_info:
-            StartContainerInput(
-                project_id=long_id,
-                working_dir="/tmp",
-            )
+            StartContainerInput(project_id=long_id)
 
         errors = exc_info.value.errors()
         assert any("project_id" in str(e["loc"]) for e in errors)
-
-    def test_empty_working_dir_rejected(self) -> None:
-        """Test that empty working_dir is rejected."""
-        with pytest.raises(ValidationError) as exc_info:
-            StartContainerInput(
-                project_id="test",
-                working_dir="",
-            )
-
-        errors = exc_info.value.errors()
-        assert any("working_dir" in str(e["loc"]) for e in errors)
 
     def test_dotnet_version_from_integer(self) -> None:
         """Test that dotnet_version accepts integer values."""
         input_data = StartContainerInput(
             project_id="test",
-            working_dir="/tmp",
             dotnet_version=9,  # type: ignore[arg-type]
         )
 

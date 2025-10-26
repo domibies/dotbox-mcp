@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Type aliases for .NET versions and detail levels
 DotNetVersionLiteral = Literal["8", "9", "10-rc2"]
@@ -90,9 +90,9 @@ class StartContainerInput(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    project_id: str = Field(
-        ...,
-        description="Project identifier (alphanumeric, hyphens, underscores)",
+    project_id: str | None = Field(
+        default=None,
+        description="Project identifier (auto-generated if not provided: dotnet{version}-proj-{random})",
         pattern=r"^[a-zA-Z0-9_-]+$",
         min_length=1,
         max_length=50,
@@ -100,11 +100,6 @@ class StartContainerInput(BaseModel):
     dotnet_version: DotNetVersion = Field(
         default=DotNetVersion.V8,
         description=".NET version: 8, 9, or '10-rc2' (accepts integer or string)",
-    )
-    working_dir: str = Field(
-        ...,
-        description="Host directory to mount as /workspace in the container",
-        min_length=1,
     )
 
     @field_validator("dotnet_version", mode="before")
@@ -116,6 +111,18 @@ class StartContainerInput(BaseModel):
         if isinstance(v, str):
             return v
         return v.value if hasattr(v, "value") else str(v)
+
+    @model_validator(mode="after")
+    def generate_project_id_if_needed(self) -> "StartContainerInput":
+        """Auto-generate project_id if not provided."""
+        if self.project_id is None:
+            import secrets
+
+            # Get version string from dotnet_version
+            version_str = self.dotnet_version.value
+            random_suffix = secrets.token_hex(3)  # 6 chars
+            self.project_id = f"dotnet{version_str}-proj-{random_suffix}"
+        return self
 
     @classmethod
     def model_json_schema(cls, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]

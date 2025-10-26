@@ -31,10 +31,19 @@ class TestMCPIntegration:
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test successful snippet execution through MCP tool."""
-        # Mock successful build and run
+        # Mock successful file operations, build, and run
+        mock_empty = MagicMock()
+        mock_empty.output = b""
+        mock_empty.exit_code = 0
+
         mock_result = MagicMock()
         mock_result.output = b"Hello World\n"
         mock_result.exit_code = 0
+
+        # Mock put_archive for both directories and file writes
+        mock_docker_client.containers.get.return_value.put_archive.return_value = True
+
+        # Mock exec_run for build and run only (directories use put_archive now)
         mock_docker_client.containers.get.return_value.exec_run.side_effect = [
             mock_result,  # Build
             mock_result,  # Run
@@ -75,15 +84,24 @@ class TestMCPIntegration:
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test snippet execution with compilation error."""
-        # Mock build failure
+        # Mock file operations succeeding, then build failure
+        mock_empty = MagicMock()
+        mock_empty.output = b""
+        mock_empty.exit_code = 0
+
         mock_build = MagicMock()
         mock_build.output = (
             b"Program.cs(1,1): error CS0103: The name 'InvalidCode' does not exist"
         )
         mock_build.exit_code = 1
-        mock_docker_client.containers.get.return_value.exec_run.return_value = (
-            mock_build
-        )
+
+        # Mock put_archive for both directories and file writes
+        mock_docker_client.containers.get.return_value.put_archive.return_value = True
+
+        # Mock exec_run for build failure only (directories use put_archive now)
+        mock_docker_client.containers.get.return_value.exec_run.side_effect = [
+            mock_build,  # Build fails
+        ]
 
         with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
             from src.docker_manager import DockerContainerManager
@@ -109,10 +127,19 @@ class TestMCPIntegration:
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test snippet execution with NuGet packages."""
-        # Mock successful build and run
+        # Mock successful file operations, build, and run
+        mock_empty = MagicMock()
+        mock_empty.output = b""
+        mock_empty.exit_code = 0
+
         mock_result = MagicMock()
         mock_result.output = b'{"Name":"Test"}\n'
         mock_result.exit_code = 0
+
+        # Mock put_archive for both directories and file writes
+        mock_docker_client.containers.get.return_value.put_archive.return_value = True
+
+        # Mock exec_run for build and run only (directories use put_archive now)
         mock_docker_client.containers.get.return_value.exec_run.side_effect = [
             mock_result,  # Build
             mock_result,  # Run
@@ -175,9 +202,18 @@ class TestMCPIntegration:
         output_lines = [f"Line {i}" for i in range(100)]
         output = "\n".join(output_lines)
 
+        mock_empty = MagicMock()
+        mock_empty.output = b""
+        mock_empty.exit_code = 0
+
         mock_result = MagicMock()
         mock_result.output = output.encode()
         mock_result.exit_code = 0
+
+        # Mock put_archive for both directories and file writes
+        mock_docker_client.containers.get.return_value.put_archive.return_value = True
+
+        # Mock exec_run for build and run only (directories use put_archive now)
         mock_docker_client.containers.get.return_value.exec_run.side_effect = [
             mock_result,  # Build
             mock_result,  # Run
@@ -223,13 +259,22 @@ class TestMCPIntegration:
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test that containers are cleaned up after execution."""
+        mock_empty = MagicMock()
+        mock_empty.output = b""
+        mock_empty.exit_code = 0
+
         mock_result = MagicMock()
         mock_result.output = b"Output"
         mock_result.exit_code = 0
+
         mock_container = mock_docker_client.containers.run.return_value
+        # Mock put_archive for both directories and file writes
+        mock_docker_client.containers.get.return_value.put_archive.return_value = True
+
+        # Mock exec_run for build and run only (directories use put_archive now)
         mock_docker_client.containers.get.return_value.exec_run.side_effect = [
-            mock_result,
-            mock_result,
+            mock_result,  # Build
+            mock_result,  # Run
         ]
 
         with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
@@ -255,13 +300,24 @@ class TestMCPIntegration:
         self, mock_docker_client: MagicMock
     ) -> None:
         """Test execution with different .NET versions."""
+        mock_empty = MagicMock()
+        mock_empty.output = b""
+        mock_empty.exit_code = 0
+
         mock_result = MagicMock()
         mock_result.output = b"Success"
         mock_result.exit_code = 0
+
+        # Mock put_archive for both directories and file writes
+        mock_docker_client.containers.get.return_value.put_archive.return_value = True
+
+        # Each version needs: build, run = 2 calls (directories use put_archive now)
+        # Testing 3 versions = 6 calls total
         mock_docker_client.containers.get.return_value.exec_run.side_effect = [
-            mock_result,
-            mock_result,
-        ] * 3
+            mock_result, mock_result,  # Version 1
+            mock_result, mock_result,  # Version 2
+            mock_result, mock_result,  # Version 3
+        ]
 
         with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
             from src.docker_manager import DockerContainerManager

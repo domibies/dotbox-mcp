@@ -384,3 +384,136 @@ class TestOutputFormatter:
         assert "Executed C# Code:" not in result
         # But should still have output
         assert "Output" in result
+
+    def test_artifact_reminder_for_json_output(self) -> None:
+        """Test that JSON output triggers artifact reminder."""
+        formatter = OutputFormatter()
+        json_output = '{"name": "test", "value": 42}'
+        result = formatter.format_human_readable_response(
+            status="success",
+            output=json_output,
+            exit_code=0,
+        )
+
+        assert "REMINDER: Create an artifact" in result
+        assert "application/json" in result
+
+    def test_artifact_reminder_for_multiline_output(self) -> None:
+        """Test that multi-line output triggers artifact reminder."""
+        formatter = OutputFormatter()
+        multiline_output = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
+        result = formatter.format_human_readable_response(
+            status="success",
+            output=multiline_output,
+            exit_code=0,
+        )
+
+        assert "REMINDER: Create an artifact" in result
+        assert "text/plain" in result
+
+    def test_no_artifact_reminder_for_simple_output(self) -> None:
+        """Test that simple one-liner doesn't trigger artifact reminder."""
+        formatter = OutputFormatter()
+        simple_output = "42"
+        result = formatter.format_human_readable_response(
+            status="success",
+            output=simple_output,
+            exit_code=0,
+        )
+
+        assert "REMINDER: Create an artifact" not in result
+
+    def test_artifact_reminder_for_html_output(self) -> None:
+        """Test that HTML output triggers artifact reminder."""
+        formatter = OutputFormatter()
+        html_output = "<!DOCTYPE html><html><body>Test</body></html>"
+        result = formatter.format_human_readable_response(
+            status="success",
+            output=html_output,
+            exit_code=0,
+        )
+
+        assert "REMINDER: Create an artifact" in result
+        assert "text/html" in result
+
+    def test_no_artifact_reminder_for_errors(self) -> None:
+        """Test that error responses don't get artifact reminders."""
+        formatter = OutputFormatter()
+        result = formatter.format_human_readable_response(
+            status="error",
+            error_message="Build failed",
+            error_details="Long error\n" * 10,
+        )
+
+        # Errors shouldn't trigger artifact reminder
+        assert "REMINDER: Create an artifact" not in result
+
+    def test_json_response_with_artifact_instruction_for_json(self) -> None:
+        """Test that JSON format includes artifact instruction for JSON output."""
+        formatter = OutputFormatter()
+        json_output = '{"name": "test", "value": 42}'
+        result = formatter.format_json_response(
+            status="success",
+            data={"output": json_output, "exit_code": 0},
+            output=json_output,
+        )
+
+        parsed = json.loads(result)
+        assert "artifact_instruction" in parsed
+        assert parsed["artifact_instruction"]["required"] is True
+        assert parsed["artifact_instruction"]["type"] == "application/json"
+        assert "CREATE ARTIFACT NOW" in parsed["artifact_instruction"]["message"]
+
+    def test_json_response_with_artifact_instruction_for_html(self) -> None:
+        """Test that JSON format includes artifact instruction for HTML output."""
+        formatter = OutputFormatter()
+        html_output = "<!DOCTYPE html><html><body>Test</body></html>"
+        result = formatter.format_json_response(
+            status="success",
+            data={"output": html_output, "exit_code": 0},
+            output=html_output,
+        )
+
+        parsed = json.loads(result)
+        assert "artifact_instruction" in parsed
+        assert parsed["artifact_instruction"]["required"] is True
+        assert parsed["artifact_instruction"]["type"] == "text/html"
+
+    def test_json_response_no_artifact_instruction_for_simple_output(self) -> None:
+        """Test that JSON format doesn't include artifact instruction for simple output."""
+        formatter = OutputFormatter()
+        simple_output = "42"
+        result = formatter.format_json_response(
+            status="success",
+            data={"output": simple_output, "exit_code": 0},
+            output=simple_output,
+        )
+
+        parsed = json.loads(result)
+        assert "artifact_instruction" not in parsed
+
+    def test_json_response_no_artifact_instruction_for_errors(self) -> None:
+        """Test that JSON error responses don't include artifact instructions."""
+        formatter = OutputFormatter()
+        result = formatter.format_json_response(
+            status="error",
+            error={"type": "BuildError", "message": "Build failed"},
+        )
+
+        parsed = json.loads(result)
+        assert "artifact_instruction" not in parsed
+
+    def test_json_response_with_multiline_output(self) -> None:
+        """Test that JSON format includes artifact instruction for multi-line output."""
+        formatter = OutputFormatter()
+        multiline_output = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
+        result = formatter.format_json_response(
+            status="success",
+            data={"output": multiline_output, "exit_code": 0},
+            output=multiline_output,
+        )
+
+        parsed = json.loads(result)
+        assert "artifact_instruction" in parsed
+        assert parsed["artifact_instruction"]["required"] is True
+        assert parsed["artifact_instruction"]["type"] == "text/plain"

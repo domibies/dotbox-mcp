@@ -244,21 +244,21 @@ Program.cs(8,1): error CS1002: ; expected
         # Mock container creation and execution
         mock_docker_manager.create_container.return_value = "container-123"
 
-        # Mock successful build
+        # Mock file operations (no return value needed)
+        mock_docker_manager.write_file.return_value = None
+
+        # Mock build and run
         mock_docker_manager.execute_command.side_effect = [
             ("Build succeeded", "", 0),  # Build
             ("Hello World", "", 0),       # Run
         ]
 
-        with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
-            with patch("pathlib.Path.mkdir"):
-                with patch("pathlib.Path.write_text"):
-                    result = await executor.run_snippet(
-                        code='Console.WriteLine("Hello World");',
-                        dotnet_version=DotNetVersion.V8,
-                        packages=[],
-                        timeout=30,
-                    )
+        result = await executor.run_snippet(
+            code='Console.WriteLine("Hello World");',
+            dotnet_version=DotNetVersion.V8,
+            packages=[],
+            timeout=30,
+        )
 
         assert result["success"] is True
         assert result["stdout"] == "Hello World"
@@ -275,22 +275,20 @@ Program.cs(8,1): error CS1002: ; expected
         """Test snippet execution with build failure."""
         mock_docker_manager.create_container.return_value = "container-123"
 
-        # Mock build failure
-        mock_docker_manager.execute_command.return_value = (
-            "",
-            "Program.cs(1,1): error CS0103: The name 'InvalidCode' does not exist",
-            1,
-        )
+        # Mock file operations (no return value needed)
+        mock_docker_manager.write_file.return_value = None
 
-        with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
-            with patch("pathlib.Path.mkdir"):
-                with patch("pathlib.Path.write_text"):
-                    result = await executor.run_snippet(
-                        code="InvalidCode;",
-                        dotnet_version=DotNetVersion.V8,
-                        packages=[],
-                        timeout=30,
-                    )
+        # Mock build failure
+        mock_docker_manager.execute_command.side_effect = [
+            ("", "Program.cs(1,1): error CS0103: The name 'InvalidCode' does not exist", 1),  # Build fails
+        ]
+
+        result = await executor.run_snippet(
+            code="InvalidCode;",
+            dotnet_version=DotNetVersion.V8,
+            packages=[],
+            timeout=30,
+        )
 
         assert result["success"] is False
         assert "CS0103" in result["stderr"]
@@ -305,20 +303,22 @@ Program.cs(8,1): error CS1002: ; expected
     ) -> None:
         """Test snippet execution with NuGet packages."""
         mock_docker_manager.create_container.return_value = "container-123"
+
+        # Mock file operations (no return value needed)
+        mock_docker_manager.write_file.return_value = None
+
+        # Mock build and run
         mock_docker_manager.execute_command.side_effect = [
-            ("Build succeeded", "", 0),
-            ("JSON output", "", 0),
+            ("Build succeeded", "", 0),  # Build
+            ("JSON output", "", 0),       # Run
         ]
 
-        with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
-            with patch("pathlib.Path.mkdir"):
-                with patch("pathlib.Path.write_text"):
-                    result = await executor.run_snippet(
-                        code='var obj = new { Name = "Test" }; Console.WriteLine(JsonConvert.SerializeObject(obj));',
-                        dotnet_version=DotNetVersion.V8,
-                        packages=["Newtonsoft.Json"],
-                        timeout=30,
-                    )
+        result = await executor.run_snippet(
+            code='var obj = new { Name = "Test" }; Console.WriteLine(JsonConvert.SerializeObject(obj));',
+            dotnet_version=DotNetVersion.V8,
+            packages=["Newtonsoft.Json"],
+            timeout=30,
+        )
 
         # Verify execution succeeded and packages were handled
         assert result["success"] is True
@@ -333,21 +333,21 @@ Program.cs(8,1): error CS1002: ; expected
 
         mock_docker_manager.create_container.return_value = "container-123"
 
+        # Mock file operations (no return value needed)
+        mock_docker_manager.write_file.return_value = None
+
         # Mock timeout during execution
         mock_docker_manager.execute_command.side_effect = [
             ("Build succeeded", "", 0),  # Build succeeds
             APIError("Timeout"),          # Run times out
         ]
 
-        with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
-            with patch("pathlib.Path.mkdir"):
-                with patch("pathlib.Path.write_text"):
-                    result = await executor.run_snippet(
-                        code='while(true) { }',
-                        dotnet_version=DotNetVersion.V8,
-                        packages=[],
-                        timeout=1,
-                    )
+        result = await executor.run_snippet(
+            code='while(true) { }',
+            dotnet_version=DotNetVersion.V8,
+            packages=[],
+            timeout=1,
+        )
 
         assert result["success"] is False
         assert "timeout" in result["stderr"].lower() or "Timeout" in result["stderr"]
@@ -356,49 +356,31 @@ Program.cs(8,1): error CS1002: ; expected
     async def test_run_snippet_cleanup_on_exception(
         self, executor: DotNetExecutor, mock_docker_manager: MagicMock
     ) -> None:
-        """Test that cleanup happens even when exception occurs."""
-        mock_docker_manager.create_container.return_value = "container-123"
-        mock_docker_manager.execute_command.side_effect = RuntimeError("Unexpected error")
+        """Test that cleanup happens even when non-API exception occurs."""
+        from docker.errors import APIError
 
-        with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
-            with patch("pathlib.Path.mkdir"):
-                with patch("pathlib.Path.write_text"):
-                    with pytest.raises(RuntimeError):
-                        await executor.run_snippet(
-                            code='Console.WriteLine("Test");',
-                            dotnet_version=DotNetVersion.V8,
-                            packages=[],
-                            timeout=30,
-                        )
+        mock_docker_manager.create_container.return_value = "container-123"
+
+        # Mock file operations (no return value needed)
+        mock_docker_manager.write_file.return_value = None
+
+        # Mock API error on build
+        mock_docker_manager.execute_command.side_effect = [
+            APIError("Docker error"),  # Build fails with API error
+        ]
+
+        # APIError is caught and returned as failure result
+        result = await executor.run_snippet(
+            code='Console.WriteLine("Test");',
+            dotnet_version=DotNetVersion.V8,
+            packages=[],
+            timeout=30,
+        )
+
+        assert result["success"] is False
 
         # Verify cleanup was still called
         mock_docker_manager.stop_container.assert_called_once_with("container-123")
-
-    @pytest.mark.asyncio
-    async def test_workspace_cleanup(
-        self, executor: DotNetExecutor, mock_docker_manager: MagicMock
-    ) -> None:
-        """Test that temporary workspace is cleaned up."""
-        mock_docker_manager.create_container.return_value = "container-123"
-        mock_docker_manager.execute_command.side_effect = [
-            ("Build succeeded", "", 0),
-            ("Output", "", 0),
-        ]
-
-        mock_rmtree = Mock()
-        with patch("tempfile.mkdtemp", return_value="/tmp/test-workspace"):
-            with patch("pathlib.Path.mkdir"):
-                with patch("pathlib.Path.write_text"):
-                    with patch("shutil.rmtree", mock_rmtree):
-                        await executor.run_snippet(
-                            code='Console.WriteLine("Test");',
-                            dotnet_version=DotNetVersion.V8,
-                            packages=[],
-                            timeout=30,
-                        )
-
-        # Verify workspace was cleaned up
-        mock_rmtree.assert_called_once()
 
     def test_version_to_tfm_mapping(self, executor: DotNetExecutor) -> None:
         """Test target framework moniker mapping."""

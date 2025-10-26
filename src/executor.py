@@ -1,9 +1,6 @@
 """Executor for building and running .NET code in containers."""
 
 import re
-import shutil
-import tempfile
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -112,8 +109,8 @@ class DotNetExecutor:
     ) -> dict[str, Any]:
         """Execute C# code snippet.
 
-        Creates temporary workspace, generates project files, builds and runs code.
-        Ensures cleanup of container and workspace regardless of outcome.
+        Creates project files inside container (no volume mounting), builds and runs code.
+        Ensures cleanup of container regardless of outcome.
 
         Args:
             code: C# code to execute (top-level statements)
@@ -124,31 +121,31 @@ class DotNetExecutor:
         Returns:
             Dictionary with keys: success, stdout, stderr, exit_code, build_errors
         """
-        workspace_dir = None
         container_id = None
 
         try:
-            # Create temporary workspace
-            workspace_dir = tempfile.mkdtemp(prefix="dotnet-snippet-")
-            workspace_path = Path(workspace_dir)
-
-            # Generate project structure
-            project_name = "Snippet"
-            project_dir = workspace_path / project_name
-            project_dir.mkdir(parents=True, exist_ok=True)
-
-            # Write .csproj (await async call to fetch package versions)
-            csproj_content = await self.generate_csproj(dotnet_version, packages)
-            (project_dir / f"{project_name}.csproj").write_text(csproj_content)
-
-            # Write Program.cs with user code
-            (project_dir / "Program.cs").write_text(code)
-
-            # Create container with mounted workspace
+            # Create container (no volume mounting - files will be created inside)
             container_id = self.docker_manager.create_container(
                 dotnet_version=dotnet_version.value,
                 project_id="snippet",
-                working_dir=workspace_dir,
+            )
+
+            # Generate project files content
+            project_name = "Snippet"
+            csproj_content = await self.generate_csproj(dotnet_version, packages)
+
+            # Write .csproj file inside container (write_file creates parent directories)
+            self.docker_manager.write_file(
+                container_id=container_id,
+                dest_path=f"/workspace/{project_name}/{project_name}.csproj",
+                content=csproj_content,
+            )
+
+            # Write Program.cs file inside container
+            self.docker_manager.write_file(
+                container_id=container_id,
+                dest_path=f"/workspace/{project_name}/Program.cs",
+                content=code,
             )
 
             # Build project
@@ -195,10 +192,6 @@ class DotNetExecutor:
             # Cleanup container
             if container_id:
                 self.docker_manager.stop_container(container_id)
-
-            # Cleanup workspace
-            if workspace_dir:
-                shutil.rmtree(workspace_dir, ignore_errors=True)
 
     def _version_to_tfm(self, version: DotNetVersion) -> str:
         """Convert DotNetVersion to target framework moniker.

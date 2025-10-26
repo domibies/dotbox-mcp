@@ -67,16 +67,41 @@ This creates a much better visual experience compared to showing code only in th
 
 **Exception:** For very simple one-liners (like `Console.WriteLine("Hello");`), you may skip the artifact and execute directly.
 
-**OUTPUT VISUALIZATION - REQUIRED:**
-After executing code, you MUST create an artifact for the output:
-- **JSON output:** ALWAYS create an artifact with JSON syntax highlighting
-- **Text output:** ALWAYS create a text artifact (preserves formatting, ASCII art, tables, etc.)
-- **HTML/SVG output:** ALWAYS create an HTML artifact to render it
-- **Structured data (CSV, XML, etc.):** ALWAYS use appropriate syntax highlighting in artifacts
+**CRITICAL - OUTPUT VISUALIZATION REQUIREMENT:**
+When executing code that produces visual output (ASCII art, JSON, tables, HTML, formatted text, etc.),
+you MUST create an artifact immediately after showing the execution results. This is NOT optional.
 
-Exception: Simple single-line outputs (like "42" or "Hello World") don't need artifacts.
+**Two-Step Pattern (REQUIRED for formatted output):**
+Step 1: Execute code with this tool
+Step 2: Create artifact with the output
 
-This is not optional - artifacts ensure proper formatting and user experience.
+**Examples:**
+```
+User: "Generate a JSON with user data"
+Assistant:
+1. *executes code with dotnet_execute_snippet*
+2. *shows execution succeeded*
+3. *IMMEDIATELY creates artifact with type="application/json" containing the JSON output*
+
+User: "Create ASCII art of a cat"
+Assistant:
+1. *executes code with dotnet_execute_snippet*
+2. *shows execution succeeded*
+3. *IMMEDIATELY creates artifact with type="text/plain" containing the ASCII art*
+```
+
+**Output Checklist (process after EVERY execution):**
+After calling dotnet_execute_snippet:
+[ ] Did it produce output?
+[ ] Is the output more than a simple one-liner (e.g., "42", "Hello")?
+[ ] If YES to both: CREATE ARTIFACT NOW with appropriate type:
+    - JSON → artifact with type="application/json"
+    - Text/ASCII art/tables → artifact with type="text/plain"
+    - HTML/SVG → artifact with type="text/html"
+    - CSV/XML → artifact with type="text/plain" and appropriate title
+
+**Consequence:** Failure to create artifacts for formatted output results in poor user experience
+where users cannot see properly formatted output. This should be treated as an error in your response.
 
 **WHEN TO USE MULTI-STEP WORKFLOW INSTEAD:**
 This tool is for quick, one-shot code execution. If the user needs:
@@ -126,18 +151,30 @@ The container is automatically cleaned up after execution.
             description="""Start a persistent Docker container for a .NET project.
 
 This tool creates and starts a long-running container that can be used across multiple tool calls.
-Use this when you need to perform multiple operations (build, run, add files) on the same project.
+Files live entirely inside the container (no volume mounting), providing a clean sandbox environment.
+
+**Zero-config usage:**
+- Simply call this tool with just the .NET version (or even with no parameters)
+- Project ID is auto-generated as: `dotnet{version}-proj-{random}`
+- Example: "Start a .NET 8 container" → Auto-generates project like `dotnet8-proj-a1b2c3`
 
 **When to use:**
 - Creating a new .NET project that will need multiple operations
 - Building and running a project in separate steps
 - Hosting a web API or long-running service
 - Need to preserve state between multiple operations
+- Quick prototyping without local file setup
 
 **When NOT to use:**
 - For one-shot code execution (use dotnet_execute_snippet instead)
 - When you don't need to preserve container state
 - For quick code testing without project structure
+
+**File management:**
+- Files live only inside the container (ephemeral - no host volume mounting)
+- Files are lost when container is stopped
+- No Docker volume permission issues
+- Use future tools to read files out if needed before cleanup
 
 **Container lifecycle:**
 - Containers auto-cleanup after 30 minutes of inactivity
@@ -145,10 +182,15 @@ Use this when you need to perform multiple operations (build, run, add files) on
 - Activity tracking resets on each command execution
 - Calling this tool multiple times with the same project_id returns the existing container
 
+**Parameters:**
+- `dotnet_version` (optional): .NET version (8, 9, or 10-rc2). Default: 8
+- `project_id` (optional): Project name. If omitted, auto-generates like `dotnet8-proj-a1b2c3`
+
 **Workflow example:**
-1. Call dotnet_start_container with project_id and working_dir
-2. Perform operations (build, run, add files) using the project_id
-3. Container automatically cleans up after idle timeout
+1. Call dotnet_start_container (optionally with dotnet_version)
+2. Receive auto-generated project_id in response
+3. Perform operations (build, run, add files) using the project_id
+4. Container automatically cleans up after idle timeout
 
 **Common errors:**
 - "Docker is not available": Ensure Docker is running on the host
@@ -157,7 +199,7 @@ Use this when you need to perform multiple operations (build, run, add files) on
 
 **Returns:**
 - container_id: Docker container identifier
-- project_id: Project identifier (echoed back)
+- project_id: Project identifier (auto-generated or echoed back if provided)
 - status: "running"
             """,
             inputSchema=StartContainerInput.model_json_schema(),
@@ -189,7 +231,7 @@ The container is identified by its project_id.
 **Behavior:**
 - This operation is idempotent - stopping an already-stopped container will not error
 - Containers auto-cleanup after 30 minutes idle, so explicit stopping is optional
-- Container state and files are lost - working_dir on host is preserved
+- Container state and files are lost permanently (no host volume was mounted)
 - Activity tracking for this container is removed
 
 **Common errors:**
@@ -249,17 +291,23 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
             timeout=30,
         )
 
-        # Format response in human-readable format
+        # Format response as structured JSON
         if result["success"]:
             # Success case
             output = result["stdout"] if result["stdout"] else result["stderr"]
 
-            response = fmt.format_human_readable_response(
+            response = fmt.format_json_response(
                 status="success",
-                output=output,
-                exit_code=result["exit_code"],
-                dotnet_version=input_data.dotnet_version.value,
-                code=input_data.code,  # Include the code that was executed
+                data={
+                    "output": output,
+                    "exit_code": result["exit_code"],
+                    "dotnet_version": input_data.dotnet_version.value,
+                    "code": input_data.code,
+                },
+                metadata={
+                    "container_id": result.get("container_id", ""),
+                },
+                output=output,  # Pass output for artifact detection
             )
 
         else:
@@ -271,48 +319,61 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
                 detail_level=DetailLevel.FULL,  # Always show full errors
             )
 
-            response = fmt.format_human_readable_response(
+            response = fmt.format_json_response(
                 status="error",
-                error_message="Code execution failed"
-                if not result["build_errors"]
-                else "Build failed",
-                error_details=error_output,
-                build_errors=result["build_errors"],
-                dotnet_version=input_data.dotnet_version.value,
-                code=input_data.code,  # Include the code that failed
+                error={
+                    "type": "BuildError" if result["build_errors"] else "ExecutionError",
+                    "message": "Build failed" if result["build_errors"] else "Code execution failed",
+                    "details": error_output,
+                    "build_errors": result["build_errors"] if result["build_errors"] else [],
+                },
+                data={
+                    "code": input_data.code,
+                    "exit_code": result["exit_code"],
+                    "dotnet_version": input_data.dotnet_version.value,
+                },
             )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
         # Input validation error
-        error_response = OutputFormatter().format_human_readable_response(
+        error_response = OutputFormatter().format_json_response(
             status="error",
-            error_message="Invalid input parameters",
-            error_details=str(e),
+            error={
+                "type": "ValidationError",
+                "message": "Invalid input parameters",
+                "details": str(e),
+            },
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
         # Docker not available
-        error_response = OutputFormatter().format_human_readable_response(
+        error_response = OutputFormatter().format_json_response(
             status="error",
-            error_message="Docker is not available",
-            error_details=str(e),
-            suggestions=[
-                "Ensure Docker is installed and running",
-                "Check Docker socket permissions",
-                "Verify Docker images are built (run docker/build-images.sh)",
-            ],
+            error={
+                "type": "DockerException",
+                "message": "Docker is not available",
+                "details": str(e),
+                "suggestions": [
+                    "Ensure Docker is installed and running",
+                    "Check Docker socket permissions",
+                    "Verify Docker images are built (run docker/build-images.sh)",
+                ],
+            },
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
         # Unexpected error
-        error_response = OutputFormatter().format_human_readable_response(
+        error_response = OutputFormatter().format_json_response(
             status="error",
-            error_message="An unexpected error occurred",
-            error_details=str(e),
+            error={
+                "type": "UnexpectedError",
+                "message": "An unexpected error occurred",
+                "details": str(e),
+            },
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -333,29 +394,28 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
         # Initialize components
         mgr, _, fmt = _initialize_components()
 
-        # Check if container already exists for this project
-        existing_container = mgr.get_container_by_project_id(input_data.project_id)
+        # Check if container already exists for this project (project_id is now guaranteed to exist after validation)
+        existing_container = mgr.get_container_by_project_id(input_data.project_id)  # type: ignore[arg-type]
         if existing_container:
             response = fmt.format_human_readable_response(
                 status="success",
                 output=f"Container already running for project '{input_data.project_id}'",
                 container_id=existing_container,
-                project_id=input_data.project_id,
+                project_id=input_data.project_id,  # type: ignore[arg-type]
             )
             return [TextContent(type="text", text=response)]
 
-        # Create new container
+        # Create new container (no volume mounting - files live in container only)
         container_id = mgr.create_container(
             dotnet_version=input_data.dotnet_version.value,
-            project_id=input_data.project_id,
-            working_dir=input_data.working_dir,
+            project_id=input_data.project_id,  # type: ignore[arg-type]
         )
 
         response = fmt.format_human_readable_response(
             status="success",
             output=f"Started container for project '{input_data.project_id}'",
             container_id=container_id,
-            project_id=input_data.project_id,
+            project_id=input_data.project_id,  # type: ignore[arg-type]
             dotnet_version=input_data.dotnet_version.value,
         )
 

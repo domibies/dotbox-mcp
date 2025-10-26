@@ -39,7 +39,6 @@ class TestDockerContainerManager:
         container_id = manager.create_container(
             dotnet_version="8",
             project_id="test-project",
-            working_dir="/workspace",
         )
 
         # Verify
@@ -62,7 +61,6 @@ class TestDockerContainerManager:
         container_id = manager.create_container(
             dotnet_version="8",
             project_id="test-project",
-            working_dir="/workspace",
             port_mapping={5000: 5001},
         )
 
@@ -81,7 +79,6 @@ class TestDockerContainerManager:
         manager.create_container(
             dotnet_version="8",
             project_id="test-project",
-            working_dir="/workspace",
         )
 
         call_kwargs = mock_docker_client.containers.run.call_args[1]
@@ -264,7 +261,6 @@ class TestDockerContainerManager:
         manager.create_container(
             dotnet_version="8",
             project_id="my-project",
-            working_dir="/workspace",
         )
 
         call_kwargs = mock_docker_client.containers.run.call_args[1]
@@ -308,7 +304,6 @@ class TestDockerContainerManager:
         container_id = manager.create_container(
             dotnet_version="8",
             project_id="test-project",
-            working_dir="/workspace",
         )
 
         # Verify activity is tracked
@@ -436,7 +431,6 @@ class TestDockerContainerManager:
         manager.create_container(
             dotnet_version="8",
             project_id="test-project",
-            working_dir="/workspace",
         )
 
         call_kwargs = mock_docker_client.containers.run.call_args[1]
@@ -447,3 +441,194 @@ class TestDockerContainerManager:
         created_at = int(labels["created-at"])
         assert created_at > 0
         assert created_at <= int(time.time())
+
+    # File operations tests
+
+    def test_write_file_string_content(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test writing a file with string content."""
+        mock_container = MagicMock()
+        mock_container.put_archive.return_value = True
+        mock_docker_client.containers.get.return_value = mock_container
+
+        manager.write_file("test-container", "/workspace/test.txt", "Hello World")
+
+        # Verify put_archive was called (directory + file = 2 calls)
+        assert mock_container.put_archive.call_count == 2
+
+    def test_write_file_bytes_content(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test writing a file with bytes content."""
+        mock_container = MagicMock()
+        mock_container.put_archive.return_value = True
+        mock_docker_client.containers.get.return_value = mock_container
+
+        manager.write_file("test-container", "/workspace/test.bin", b"\x00\x01\x02")
+
+        # Verify put_archive was called (directory + file = 2 calls)
+        assert mock_container.put_archive.call_count == 2
+
+    def test_write_file_creates_parent_directory(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test that writing a file creates parent directories."""
+        mock_container = MagicMock()
+        mock_container.put_archive.return_value = True
+        mock_docker_client.containers.get.return_value = mock_container
+
+        manager.write_file("test-container", "/workspace/subdir/test.txt", "content")
+
+        # Should call put_archive twice: once for directory, once for file
+        assert mock_container.put_archive.call_count == 2
+
+    def test_create_directory(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test creating a directory using put_archive."""
+        mock_container = MagicMock()
+        mock_container.put_archive.return_value = True
+        mock_docker_client.containers.get.return_value = mock_container
+
+        manager.create_directory("test-container", "/workspace/mydir")
+
+        # Verify put_archive was called
+        mock_container.put_archive.assert_called_once()
+        # Verify it was called with root path
+        call_args = mock_container.put_archive.call_args
+        assert call_args[1]["path"] == "/"
+
+    def test_create_directory_nested(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test creating nested directories (like mkdir -p)."""
+        mock_container = MagicMock()
+        mock_container.put_archive.return_value = True
+        mock_docker_client.containers.get.return_value = mock_container
+
+        manager.create_directory("test-container", "/workspace/a/b/c")
+
+        # Verify put_archive was called
+        mock_container.put_archive.assert_called_once()
+
+    def test_create_directory_root(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test creating root or empty path is a no-op."""
+        mock_container = MagicMock()
+        mock_docker_client.containers.get.return_value = mock_container
+
+        manager.create_directory("test-container", "/")
+
+        # Should not call put_archive for root
+        mock_container.put_archive.assert_not_called()
+
+    def test_create_directory_failure(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test directory creation failure raises error."""
+        from docker.errors import APIError
+
+        mock_container = MagicMock()
+        mock_container.put_archive.side_effect = APIError("Permission denied")
+        mock_docker_client.containers.get.return_value = mock_container
+
+        with pytest.raises(APIError) as exc_info:
+            manager.create_directory("test-container", "/root/denied")
+
+        assert "Failed to create directory" in str(exc_info.value)
+
+    def test_read_file_success(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test reading a file successfully."""
+        mock_container = MagicMock()
+        mock_result = MagicMock()
+        # Base64 encoded "Hello World"
+        import base64
+
+        mock_result.output = base64.b64encode(b"Hello World")
+        mock_result.exit_code = 0
+        mock_container.exec_run.return_value = mock_result
+        mock_docker_client.containers.get.return_value = mock_container
+
+        content = manager.read_file("test-container", "/workspace/test.txt")
+
+        assert content == b"Hello World"
+
+    def test_read_file_not_found(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test reading a non-existent file."""
+        mock_container = MagicMock()
+        mock_result = MagicMock()
+        mock_result.output = b"File not found"
+        mock_result.exit_code = 1
+        mock_container.exec_run.return_value = mock_result
+        mock_docker_client.containers.get.return_value = mock_container
+
+        with pytest.raises(FileNotFoundError):
+            manager.read_file("test-container", "/workspace/nonexistent.txt")
+
+    def test_file_exists_true(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test checking if file exists (returns True)."""
+        mock_container = MagicMock()
+        mock_result = MagicMock()
+        mock_result.output = b""
+        mock_result.exit_code = 0
+        mock_container.exec_run.return_value = mock_result
+        mock_docker_client.containers.get.return_value = mock_container
+
+        exists = manager.file_exists("test-container", "/workspace/test.txt")
+
+        assert exists is True
+        mock_container.exec_run.assert_called_once()
+
+    def test_file_exists_false(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test checking if file exists (returns False)."""
+        mock_container = MagicMock()
+        mock_result = MagicMock()
+        mock_result.output = b""
+        mock_result.exit_code = 1
+        mock_container.exec_run.return_value = mock_result
+        mock_docker_client.containers.get.return_value = mock_container
+
+        exists = manager.file_exists("test-container", "/workspace/nonexistent.txt")
+
+        assert exists is False
+
+    def test_list_files_success(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test listing files in a directory."""
+        mock_container = MagicMock()
+        mock_result = MagicMock()
+        mock_result.output = b"file1.txt\nfile2.cs\nsubdir\n"
+        mock_result.exit_code = 0
+        mock_container.exec_run.return_value = mock_result
+        mock_docker_client.containers.get.return_value = mock_container
+
+        files = manager.list_files("test-container", "/workspace")
+
+        assert files == ["file1.txt", "file2.cs", "subdir"]
+        mock_container.exec_run.assert_called_once()
+
+    def test_list_files_empty_directory(
+        self, manager: DockerContainerManager, mock_docker_client: MagicMock
+    ) -> None:
+        """Test listing files in an empty or non-existent directory."""
+        mock_container = MagicMock()
+        mock_result = MagicMock()
+        mock_result.output = b""
+        mock_result.exit_code = 1
+        mock_container.exec_run.return_value = mock_result
+        mock_docker_client.containers.get.return_value = mock_container
+
+        files = manager.list_files("test-container", "/nonexistent")
+
+        assert files == []

@@ -47,15 +47,13 @@ class DockerContainerManager:
         self,
         dotnet_version: str,
         project_id: str,
-        working_dir: str,
         port_mapping: dict[int, int] | None = None,
     ) -> str:
-        """Create and start a container with mounted volume.
+        """Create and start a container without volume mounting (files live in container only).
 
         Args:
             dotnet_version: .NET version (8, 9, 10-rc2)
             project_id: Project identifier for labeling
-            working_dir: Host directory to mount as /workspace
             port_mapping: Optional port mapping {container_port: host_port}
 
         Returns:
@@ -79,23 +77,19 @@ class DockerContainerManager:
             "created-at": str(int(time.time())),  # For fallback idle cleanup
         }
 
-        # Configure volumes
-        volumes = {working_dir: {"bind": "/workspace", "mode": "rw"}}
-
         # Configure ports
         ports = {}
         if port_mapping:
             for container_port, host_port in port_mapping.items():
                 ports[container_port] = host_port
 
-        # Create and start container
+        # Create and start container (no volume mounting - files live in container only)
         try:
             container = self.client.containers.run(  # type: ignore[call-overload]
                 image=image,
                 name=container_name,
                 detach=True,
                 labels=labels,
-                volumes=volumes,
                 ports=ports,
                 mem_limit=self.MEMORY_LIMIT,
                 cpu_period=self.CPU_PERIOD,
@@ -338,3 +332,160 @@ class DockerContainerManager:
         except APIError as e:
             print(f"Warning: Failed to list containers for lazy cleanup: {e}")
             return 0
+
+    # File operations methods
+
+    def write_file(self, container_id: str, dest_path: str, content: str | bytes) -> None:
+        """Write file to container using Docker's put_archive API.
+
+        Args:
+            container_id: Container identifier
+            dest_path: Destination path inside container
+            content: File content (string or bytes)
+
+        Raises:
+            APIError: If file write fails
+        """
+        import io
+        import os
+        import tarfile
+
+        # Convert string to bytes if needed
+        if isinstance(content, str):
+            content_bytes = content.encode("utf-8")
+        else:
+            content_bytes = content
+
+        # Ensure parent directory exists
+        parent_dir = os.path.dirname(dest_path)
+        if parent_dir and parent_dir != "/":
+            self.create_directory(container_id, parent_dir)
+
+        # Create tar archive in memory with the file
+        try:
+            tar_stream = io.BytesIO()
+            with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+                tarinfo = tarfile.TarInfo(name=os.path.basename(dest_path))
+                tarinfo.size = len(content_bytes)
+                tarinfo.mode = 0o666  # rw-rw-rw- - readable/writable by all
+                tarinfo.uid = 1000  # Standard non-root user
+                tarinfo.gid = 1000  # Standard non-root group
+                tar.addfile(tarinfo, io.BytesIO(content_bytes))
+
+            tar_stream.seek(0)
+
+            # Write file to container using put_archive
+            container = self.client.containers.get(container_id)
+            container.put_archive(path=parent_dir or "/", data=tar_stream)
+
+            # Update activity tracking
+            self._update_activity(container_id)
+        except APIError as e:
+            raise APIError(f"Failed to write file {dest_path} in container {container_id}: {e}") from e
+
+    def read_file(self, container_id: str, path: str) -> bytes:
+        """Read file from container using base64 encoding.
+
+        Args:
+            container_id: Container identifier
+            path: File path inside container
+
+        Returns:
+            File content as bytes
+
+        Raises:
+            FileNotFoundError: If file does not exist
+            APIError: If file read fails
+        """
+        import base64
+
+        stdout, _, exit_code = self.execute_command(
+            container_id, ["sh", "-c", f"base64 {path}"], timeout=30
+        )
+
+        if exit_code != 0:
+            raise FileNotFoundError(f"File not found: {path}")
+
+        return base64.b64decode(stdout)
+
+    def create_directory(self, container_id: str, path: str) -> None:
+        """Create directory inside container using put_archive API.
+
+        Args:
+            container_id: Container identifier
+            path: Directory path inside container
+
+        Raises:
+            APIError: If directory creation fails
+        """
+        import io
+        import tarfile
+
+        try:
+            container = self.client.containers.get(container_id)
+
+            # Parse path to create all parent directories (like mkdir -p)
+            # Remove leading/trailing slashes and split
+            parts = [p for p in path.strip("/").split("/") if p]
+
+            if not parts:
+                # Root directory or empty path - nothing to create
+                return
+
+            # Create tar archive with directory structure
+            tar_stream = io.BytesIO()
+            with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+                # Add each directory level (mimics mkdir -p behavior)
+                current_path = ""
+                for part in parts:
+                    current_path = f"{current_path}/{part}" if current_path else part
+                    tarinfo = tarfile.TarInfo(name=current_path)
+                    tarinfo.type = tarfile.DIRTYPE  # Mark as directory
+                    tarinfo.mode = 0o777  # rwxrwxrwx - world-writable for container user
+                    tarinfo.uid = 1000  # Standard non-root user
+                    tarinfo.gid = 1000  # Standard non-root group
+                    tar.addfile(tarinfo)
+
+            tar_stream.seek(0)
+
+            # Put archive at root - path contains full directory structure
+            container.put_archive(path="/", data=tar_stream)
+
+            # Update activity tracking
+            self._update_activity(container_id)
+        except APIError as e:
+            raise APIError(f"Failed to create directory {path}: {e}") from e
+
+    def file_exists(self, container_id: str, path: str) -> bool:
+        """Check if file exists in container.
+
+        Args:
+            container_id: Container identifier
+            path: File path inside container
+
+        Returns:
+            True if file exists, False otherwise
+        """
+        _, _, exit_code = self.execute_command(
+            container_id, ["test", "-f", path], timeout=5
+        )
+        return exit_code == 0
+
+    def list_files(self, container_id: str, path: str) -> list[str]:
+        """List files in directory inside container.
+
+        Args:
+            container_id: Container identifier
+            path: Directory path inside container
+
+        Returns:
+            List of file names (empty list if directory doesn't exist)
+        """
+        stdout, _, exit_code = self.execute_command(
+            container_id, ["ls", "-1", path], timeout=10
+        )
+
+        if exit_code != 0:
+            return []
+
+        return [line.strip() for line in stdout.split("\n") if line.strip()]
