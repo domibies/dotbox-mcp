@@ -151,3 +151,132 @@ class StopContainerInput(BaseModel):
         min_length=1,
         max_length=50,
     )
+
+
+class WriteFileInput(BaseModel):
+    """Input model for writing a file to a container."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: str = Field(
+        ...,
+        description="Project identifier for the container",
+        min_length=1,
+        max_length=50,
+    )
+    path: str = Field(
+        ...,
+        description="File path inside container (e.g., /workspace/Program.cs)",
+        min_length=1,
+        max_length=500,
+    )
+    content: str = Field(
+        ...,
+        description="File content to write",
+        min_length=0,
+        max_length=100000,
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        """Validate file path is absolute and within workspace."""
+        if not v.startswith("/workspace/"):
+            raise ValueError("Path must start with /workspace/ for security")
+        if ".." in v:
+            raise ValueError("Path cannot contain '..' (directory traversal)")
+        return v
+
+
+class ReadFileInput(BaseModel):
+    """Input model for reading a file from a container."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: str = Field(
+        ...,
+        description="Project identifier for the container",
+        min_length=1,
+        max_length=50,
+    )
+    path: str = Field(
+        ...,
+        description="File path inside container (e.g., /workspace/Program.cs)",
+        min_length=1,
+        max_length=500,
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        """Validate file path is absolute and within workspace."""
+        if not v.startswith("/workspace/"):
+            raise ValueError("Path must start with /workspace/ for security")
+        if ".." in v:
+            raise ValueError("Path cannot contain '..' (directory traversal)")
+        return v
+
+
+class ListFilesInput(BaseModel):
+    """Input model for listing files in a container directory."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: str = Field(
+        ...,
+        description="Project identifier for the container",
+        min_length=1,
+        max_length=50,
+    )
+    path: str = Field(
+        default="/workspace",
+        description="Directory path inside container (default: /workspace)",
+        min_length=1,
+        max_length=500,
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        """Validate directory path is absolute and within workspace."""
+        if not v.startswith("/workspace"):
+            raise ValueError("Path must start with /workspace for security")
+        if ".." in v:
+            raise ValueError("Path cannot contain '..' (directory traversal)")
+        return v
+
+
+class ExecuteCommandInput(BaseModel):
+    """Input model for executing a command in a container."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: str = Field(
+        ...,
+        description="Project identifier for the container",
+        min_length=1,
+        max_length=50,
+    )
+    command: list[str] = Field(
+        ...,
+        description="Command to execute as list of arguments (e.g., ['dotnet', 'build'])",
+        min_length=1,
+        max_length=50,
+    )
+    timeout: int = Field(
+        default=30,
+        description="Execution timeout in seconds (default: 30)",
+        ge=1,
+        le=300,
+    )
+
+    @field_validator("command")
+    @classmethod
+    def validate_command(cls, v: list[str]) -> list[str]:
+        """Validate command list."""
+        if not v:
+            raise ValueError("Command cannot be empty")
+        for arg in v:
+            if not arg or len(arg) > 1000:
+                raise ValueError(f"Invalid command argument: {arg!r}")
+        return v
