@@ -201,6 +201,59 @@ Files live entirely inside the container (no volume mounting), providing a clean
 **Parameters:**
 - `dotnet_version` (optional): .NET version (8, 9, or 10-rc2). Default: 8
 - `project_id` (optional): Project name. If omitted, auto-generates like `dotnet8-proj-a1b2c3`
+- `ports` (optional): Port mapping for exposing web servers/APIs to the host
+  - **Format**: Object with container ports as keys, host ports as values
+  - **Mental model**: `{"5000": 8080}` means:
+    - Your .NET app listens on port **5000 INSIDE the container**
+    - You access it at **http://localhost:8080 on your host machine**
+    - Docker routes: host:8080 → container:5000 → your app
+  - **Examples**:
+    - Specific mapping: `{"5000": 8080}` - App listens on 5000, access via localhost:8080
+    - Auto-assign: `{"5000": 0}` - Docker chooses an available host port (e.g., 32768)
+    - Multiple ports: `{"5000": 8080, "5001": 8081}` - Two separate ports
+  - **Access**: Use `dotnet_list_containers()` to see actual assigned host ports
+  - **Default**: None (no ports exposed)
+
+**IMPORTANT - Configuring your app's listening port:**
+The container sets `ASPNETCORE_URLS=http://*:8080` by default. Your app must explicitly listen on your mapped container port:
+
+**Method 1 - appsettings.json (recommended):**
+```json
+{
+  "Kestrel": {
+    "Endpoints": {
+      "Http": { "Url": "http://0.0.0.0:5000" }
+    }
+  }
+}
+```
+
+**Method 2 - Command line flag:**
+```python
+dotnet_run_background(
+    command=["dotnet", "run", "--urls", "http://0.0.0.0:5000"]
+)
+```
+
+**Example - Complete web API workflow:**
+```python
+# 1. Start container with port mapping
+dotnet_start_container(dotnet_version=8, ports={"5000": 8080})
+
+# 2. Create app that listens on port 5000 (matches container port)
+dotnet_write_file(
+    path="/workspace/api/appsettings.json",
+    content='{"Kestrel": {"Endpoints": {"Http": {"Url": "http://0.0.0.0:5000"}}}}'
+)
+
+# 3. Access at http://localhost:8080 (the HOST port)
+dotnet_test_endpoint(url="http://localhost:8080/health")
+```
+
+**Troubleshooting:**
+- Can't reach API? Check `dotnet_get_logs()` to see which port it's actually listening on
+- Seeing "Overriding address" warning? Your app config is correct, ignore the warning
+- Port conflict? Use auto-assign (`{"5000": 0}`) instead of specific host ports
 
 **Workflow example:**
 1. Call dotnet_start_container (optionally with dotnet_version)

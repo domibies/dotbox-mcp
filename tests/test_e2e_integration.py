@@ -1084,3 +1084,244 @@ class TestE2EListContainers:
         # List should be empty again
         result3 = await list_containers({})
         assert "No active containers found" in result3[0].text
+
+
+@pytest.mark.e2e
+class TestE2EMCPProtocolFlow:
+    """E2E tests simulating exact MCP protocol flow from Claude Desktop.
+
+    These tests verify that the JSON schema and Pydantic validators work together
+    correctly when receiving JSON-deserialized arguments with string keys.
+    """
+
+    @pytest.mark.asyncio
+    async def test_port_mapping_with_json_string_keys_full_flow(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test complete MCP flow with JSON string keys (simulating Claude Desktop).
+
+        This test simulates exactly what Claude Desktop does:
+        1. Sends JSON with string keys: {"5000": 8080}
+        2. JSON gets deserialized to Python dict with string keys
+        3. MCP schema validation runs
+        4. Pydantic validator coerces strings to integers
+        5. Container is created with correct port mapping
+        6. Web API is accessible externally
+        """
+        import json
+
+        import httpx
+
+        from src.server import run_background, start_container, stop_container, write_file
+
+        # Simulate MCP client sending JSON (string keys)
+        # This is EXACTLY what Claude Desktop sends
+        json_payload = json.dumps(
+            {"dotnet_version": "8", "project_id": "test-mcp-ports", "ports": {"5000": 8080}}
+        )
+
+        # Deserialize JSON (converts to dict with string keys)
+        arguments = json.loads(json_payload)
+
+        # Verify we have string keys (this is what breaks without our fix)
+        assert isinstance(list(arguments["ports"].keys())[0], str), "Keys should be strings from JSON"
+
+        # Call MCP tool handler with JSON-deserialized arguments
+        start_result = await start_container(arguments)
+        assert len(start_result) == 1
+        assert "test-mcp-ports" in start_result[0].text
+        assert "success" in start_result[0].text.lower() or "running" in start_result[0].text.lower()
+
+        try:
+            # Create minimal web API
+            await write_file(
+                {
+                    "project_id": "test-mcp-ports",
+                    "path": "/workspace/TestApi/TestApi.csproj",
+                    "content": """<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>""",
+                }
+            )
+
+            await write_file(
+                {
+                    "project_id": "test-mcp-ports",
+                    "path": "/workspace/TestApi/Program.cs",
+                    "content": """var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapGet("/", () => "MCP port mapping works!");
+app.MapGet("/health", () => new { status = "healthy", message = "Port coercion successful" });
+
+app.Run();
+""",
+                }
+            )
+
+            # Start web server
+            run_result = await run_background(
+                {
+                    "project_id": "test-mcp-ports",
+                    "command": [
+                        "dotnet",
+                        "run",
+                        "--project",
+                        "/workspace/TestApi",
+                        "--urls",
+                        "http://0.0.0.0:5000",
+                    ],
+                    "wait_for_ready": 8,
+                }
+            )
+            assert len(run_result) == 1
+
+            # Test external HTTP access (THE KEY TEST - proves port mapping worked)
+            async with httpx.AsyncClient() as client:
+                # Test root endpoint
+                response = await client.get("http://localhost:8080/", timeout=5.0)
+                assert response.status_code == 200
+                assert "MCP port mapping works!" in response.text
+
+                # Test health endpoint
+                health_response = await client.get("http://localhost:8080/health", timeout=5.0)
+                assert health_response.status_code == 200
+                data = health_response.json()
+                assert data["status"] == "healthy"
+                assert "Port coercion successful" in data["message"]
+
+        finally:
+            await stop_container({"project_id": "test-mcp-ports"})
+
+    @pytest.mark.asyncio
+    async def test_auto_port_assignment_with_json_string_keys(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test auto-assignment with JSON string keys: {"5000": "0"}."""
+        import json
+        import re
+
+        import httpx
+
+        from src.server import (
+            list_containers,
+            run_background,
+            start_container,
+            stop_container,
+            write_file,
+        )
+
+        # Simulate MCP client with auto-assignment (string "0")
+        json_payload = json.dumps(
+            {"dotnet_version": "8", "project_id": "test-auto-port", "ports": {"5000": "0"}}
+        )
+        arguments = json.loads(json_payload)
+
+        # Verify string values from JSON
+        assert isinstance(arguments["ports"]["5000"], str), "Value should be string '0' from JSON"
+
+        start_result = await start_container(arguments)
+        assert len(start_result) == 1
+
+        try:
+            # Discover assigned port
+            containers_result = await list_containers({})
+            response_text = containers_result[0].text
+
+            # Extract host port from response
+            match = re.search(r"5000/tcp.*?(\d+)", response_text)
+            assert match, f"Could not find assigned port in: {response_text}"
+            assigned_port = int(match.group(1))
+            assert assigned_port > 1024, "Assigned port should be ephemeral (>1024)"
+
+            # Create minimal API
+            await write_file(
+                {
+                    "project_id": "test-auto-port",
+                    "path": "/workspace/TestApi/TestApi.csproj",
+                    "content": """<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>""",
+                }
+            )
+
+            await write_file(
+                {
+                    "project_id": "test-auto-port",
+                    "path": "/workspace/TestApi/Program.cs",
+                    "content": """var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+app.MapGet("/test", () => new { status = "ok", port = "auto-assigned" });
+app.Run();
+""",
+                }
+            )
+
+            await run_background(
+                {
+                    "project_id": "test-auto-port",
+                    "command": [
+                        "dotnet",
+                        "run",
+                        "--project",
+                        "/workspace/TestApi",
+                        "--urls",
+                        "http://0.0.0.0:5000",
+                    ],
+                    "wait_for_ready": 8,
+                }
+            )
+
+            # Test via discovered port
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"http://localhost:{assigned_port}/test", timeout=5.0
+                )
+                assert response.status_code == 200
+                data = response.json()
+                assert data["status"] == "ok"
+                assert data["port"] == "auto-assigned"
+
+        finally:
+            await stop_container({"project_id": "test-auto-port"})
+
+    @pytest.mark.asyncio
+    async def test_multiple_ports_with_mixed_string_formats(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test multiple port mappings with various string/int combinations."""
+        import json
+
+        from src.server import start_container, stop_container
+
+        # Test all possible combinations from MCP JSON
+        test_cases = [
+            # String keys, integer values
+            {"5000": 8080, "5001": 8081},
+            # String keys, string values
+            {"5000": "8080", "5001": "8081"},
+            # Mixed (string key with string value for auto-assign)
+            {"5000": 8080, "5001": "0"},
+        ]
+
+        for i, ports_config in enumerate(test_cases):
+            project_id = f"test-multi-ports-{i}"
+            json_payload = json.dumps(
+                {"dotnet_version": "8", "project_id": project_id, "ports": ports_config}
+            )
+            arguments = json.loads(json_payload)
+
+            try:
+                # Should not raise validation error
+                start_result = await start_container(arguments)
+                assert len(start_result) == 1
+                assert project_id in start_result[0].text
+
+            finally:
+                await stop_container({"project_id": project_id})
