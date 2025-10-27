@@ -91,23 +91,23 @@ class OutputFormatter:
 
         if status == "success":
             # Success header
-            sections.append(f"✓ Code executed successfully using .NET {dotnet_version}")
+            sections.append(f"[SUCCESS] Code executed successfully using .NET {dotnet_version}")
             sections.append("")
 
             # Code section (if provided)
             if code:
                 sections.append("Executed C# Code:")
-                sections.append("─" * 60)
+                sections.append("-" * 60)
                 sections.append(code)
-                sections.append("─" * 60)
+                sections.append("-" * 60)
                 sections.append("")
 
             # Output section
             if output.strip():
                 sections.append("Output:")
-                sections.append("─" * 60)
+                sections.append("-" * 60)
                 sections.append(output.strip())
-                sections.append("─" * 60)
+                sections.append("-" * 60)
             else:
                 sections.append("(no output)")
 
@@ -116,7 +116,7 @@ class OutputFormatter:
 
         else:
             # Error header
-            sections.append(f"✗ Execution failed: {error_message}")
+            sections.append(f"[ERROR] Execution failed: {error_message}")
             if dotnet_version:
                 sections.append(f"(.NET {dotnet_version})")
             sections.append("")
@@ -124,35 +124,43 @@ class OutputFormatter:
             # Code section (if provided)
             if code:
                 sections.append("Code that failed:")
-                sections.append("─" * 60)
+                sections.append("-" * 60)
                 sections.append(code)
-                sections.append("─" * 60)
+                sections.append("-" * 60)
                 sections.append("")
 
             # Build errors
             if build_errors:
                 sections.append("Build Errors:")
-                sections.append("─" * 60)
+                sections.append("-" * 60)
                 for err in build_errors[:10]:  # Limit to first 10
-                    sections.append(f"  • {err}")
+                    sections.append(f"  * {err}")
                 if len(build_errors) > 10:
                     sections.append(f"  ... and {len(build_errors) - 10} more errors")
-                sections.append("─" * 60)
+                sections.append("-" * 60)
                 sections.append("")
 
             # Error details
             if error_details:
                 sections.append("Details:")
-                sections.append("─" * 60)
+                sections.append("-" * 60)
                 sections.append(error_details.strip())
-                sections.append("─" * 60)
+                sections.append("-" * 60)
+                sections.append("")
+
+            # Output section (for error responses with output like HTTP error bodies)
+            if output.strip():
+                sections.append("Response:")
+                sections.append("-" * 60)
+                sections.append(output.strip())
+                sections.append("-" * 60)
                 sections.append("")
 
             # Suggestions
             if suggestions:
                 sections.append("Suggestions:")
                 for suggestion in suggestions:
-                    sections.append(f"  → {suggestion}")
+                    sections.append(f"  -> {suggestion}")
                 sections.append("")
 
         # Metadata (container_id, project_id)
@@ -174,11 +182,11 @@ class OutputFormatter:
             needs_artifact = self._should_suggest_artifact(output)
             if needs_artifact:
                 artifact_type = self._detect_output_type(output)
-                result += f"\n\n{'─' * 60}"
-                result += "\n⚠️  REMINDER: Create an artifact to display this output properly!"
-                result += f"\n   Type: {artifact_type}"
-                result += "\n   This ensures proper formatting and user experience."
-                result += f"\n{'─' * 60}"
+                result += f"\n\n{'-' * 60}"
+                result += "\n[!] REMINDER: Create an artifact to display this output properly!"
+                result += f"\n    Type: {artifact_type}"
+                result += "\n    This ensures proper formatting and user experience."
+                result += f"\n{'-' * 60}"
 
         # Enforce character limit
         if len(result) > self.CHARACTER_LIMIT:

@@ -196,7 +196,7 @@ class TestOutputFormatter:
         )
 
         # Should contain success indicator
-        assert "✓" in result or "success" in result.lower()
+        assert "[SUCCESS]" in result or "success" in result.lower()
         # Should contain .NET version
         assert "8" in result
         # Should contain output
@@ -235,14 +235,14 @@ class TestOutputFormatter:
         )
 
         # Should contain error indicator
-        assert "✗" in result or "failed" in result.lower()
+        assert "[ERROR]" in result or "failed" in result.lower()
         # Should contain error message
         assert "Build failed" in result
         # Should contain build errors
         assert "CS0103" in result
         assert "CS0246" in result
-        # Should use bullet points
-        assert "•" in result
+        # Should use bullet points (asterisks)
+        assert "*" in result
 
     def test_format_human_readable_error_with_suggestions(self) -> None:
         """Test human-readable error format with suggestions."""
@@ -259,8 +259,8 @@ class TestOutputFormatter:
 
         # Should contain suggestions section
         assert "Suggestions:" in result or "suggestions" in result.lower()
-        # Should contain suggestion arrows
-        assert "→" in result
+        # Should contain suggestion arrows (->)
+        assert "->" in result
         # Should contain suggestions
         assert "Docker is running" in result
         assert "permissions" in result
@@ -313,7 +313,7 @@ class TestOutputFormatter:
         )
 
         # Should contain separator lines
-        assert "─" in result or "-" in result
+        assert "-" in result
 
     def test_format_human_readable_error_details(self) -> None:
         """Test error details are shown in error response."""
@@ -347,7 +347,7 @@ class TestOutputFormatter:
         # Should contain the actual code
         assert code in result
         # Should have separator lines
-        assert "─" in result
+        assert "-" in result
         # Should still have output
         assert "Hello World" in result
 
@@ -368,6 +368,23 @@ class TestOutputFormatter:
         assert code in result
         # Should have error message
         assert "Build failed" in result
+
+    def test_format_human_readable_error_with_output(self) -> None:
+        """Test that error responses can display output (e.g. HTTP error body)."""
+        formatter = OutputFormatter()
+        error_body = '{"error": "Invalid parameter", "code": "BAD_REQUEST"}'
+        result = formatter.format_human_readable_response(
+            status="error",
+            error_message="HTTP 400 Bad Request",
+            output=error_body,
+        )
+
+        # Should contain error message
+        assert "400 Bad Request" in result
+        # Should contain the output/response body
+        assert "Response:" in result
+        assert "Invalid parameter" in result
+        assert "BAD_REQUEST" in result
 
     def test_format_human_readable_without_code(self) -> None:
         """Test that response works without code parameter."""

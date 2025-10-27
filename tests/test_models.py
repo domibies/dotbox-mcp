@@ -358,6 +358,89 @@ class TestStartContainerInput:
         assert any("ports" in str(e["loc"]) for e in errors)
 
 
+class TestStartContainerInputPortCoercion:
+    """Test port mapping with string key coercion (MCP JSON bug fix)."""
+
+    def test_port_mapping_with_string_keys(self) -> None:
+        """Test that string keys from JSON are coerced to integers.
+
+        MCP clients send JSON where object keys are always strings.
+        This test verifies {"5000": 8080} gets coerced to {5000: 8080}.
+        """
+        input_data = StartContainerInput(
+            dotnet_version="8",
+            ports={"5000": 8080, "5001": 8081},  # type: ignore[arg-type]  # String keys from JSON
+        )
+        # Should be coerced to integer keys
+        assert input_data.ports == {5000: 8080, 5001: 8081}
+
+    def test_port_mapping_with_string_values(self) -> None:
+        """Test that string values are coerced to integers."""
+        input_data = StartContainerInput(
+            dotnet_version="8",
+            ports={"5000": "8080"},  # type: ignore[arg-type]  # String value from JSON
+        )
+        assert input_data.ports == {5000: 8080}
+
+    def test_port_mapping_auto_assign_with_strings(self) -> None:
+        """Test auto-assignment with string keys and values."""
+        input_data = StartContainerInput(
+            dotnet_version="8",
+            ports={"5000": "0"},  # type: ignore[arg-type]  # String "0" for auto-assign
+        )
+        assert input_data.ports == {5000: 0}
+
+    def test_port_mapping_invalid_format(self) -> None:
+        """Test that invalid port formats raise helpful errors."""
+        with pytest.raises(ValidationError, match="must be integers"):
+            StartContainerInput(
+                dotnet_version="8",
+                ports={"5000": "abc"},  # type: ignore[arg-type]  # Invalid value
+            )
+
+    def test_port_mapping_invalid_key_format(self) -> None:
+        """Test that invalid port keys raise helpful errors."""
+        with pytest.raises(ValidationError, match="must be integers"):
+            StartContainerInput(
+                dotnet_version="8",
+                ports={"invalid": 8080},  # type: ignore[arg-type]  # Invalid key
+            )
+
+    def test_port_mapping_non_dict_rejected(self) -> None:
+        """Test that non-dict/non-JSON string is rejected with helpful error."""
+        # Non-JSON string (like Docker CLI format) should be rejected
+        with pytest.raises(ValidationError, match="not valid JSON"):
+            StartContainerInput(
+                dotnet_version="8",
+                ports="5000:8080",  # type: ignore[arg-type]  # Docker CLI format (invalid)
+            )
+
+    def test_port_mapping_json_string_claude_desktop_bug(self) -> None:
+        """Test handling of JSON-encoded string (Claude Desktop double-encoding bug)."""
+        # Claude Desktop sometimes sends: '{"5000": 8080}' instead of {"5000": 8080}
+        input_data = StartContainerInput(
+            dotnet_version="8",
+            ports='{"5000": 8080}',  # type: ignore[arg-type]  # JSON string
+        )
+        assert input_data.ports == {5000: 8080}
+
+    def test_port_mapping_json_string_with_auto_assign(self) -> None:
+        """Test JSON string with auto-assignment (0 value)."""
+        input_data = StartContainerInput(
+            dotnet_version="8",
+            ports='{"5000": 0}',  # type: ignore[arg-type]  # JSON string with auto-assign
+        )
+        assert input_data.ports == {5000: 0}
+
+    def test_port_mapping_invalid_json_string(self) -> None:
+        """Test that invalid JSON strings are rejected with helpful error."""
+        with pytest.raises(ValidationError, match="not valid JSON"):
+            StartContainerInput(
+                dotnet_version="8",
+                ports='{"5000: 8080',  # type: ignore[arg-type]  # Malformed JSON
+            )
+
+
 class TestStopContainerInput:
     """Test StopContainerInput model."""
 
@@ -699,7 +782,7 @@ class TestTestEndpointInput:
 
         assert input_data.url == "http://localhost:8080/health"
         assert input_data.method == "GET"  # Default
-        assert input_data.headers is None
+        assert input_data.headers == {}  # Default empty dict
         assert input_data.body is None
         assert input_data.timeout == 30  # Default
 

@@ -201,6 +201,126 @@ Files live entirely inside the container (no volume mounting), providing a clean
 **Parameters:**
 - `dotnet_version` (optional): .NET version (8, 9, or 10-rc2). Default: 8
 - `project_id` (optional): Project name. If omitted, auto-generates like `dotnet8-proj-a1b2c3`
+- `ports` (optional): Port mapping for exposing web servers/APIs to the host
+  - **Format**: Object with container ports as keys, host ports as values
+  - **Mental model**: `{"5000": 8080}` means:
+    - Your .NET app listens on port **5000 INSIDE the container**
+    - You access it at **http://localhost:8080 on your host machine**
+    - Docker routes: host:8080 → container:5000 → your app
+  - **Examples**:
+    - Specific mapping: `{"5000": 8080}` - App listens on 5000, access via localhost:8080
+    - Auto-assign: `{"5000": 0}` - Docker chooses an available host port (e.g., 32768)
+    - Multiple ports: `{"5000": 8080, "5001": 8081}` - Two separate ports
+  - **Access**: Use `dotnet_list_containers()` to see actual assigned host ports
+  - **Default**: None (no ports exposed)
+
+**IMPORTANT - Configuring your app's listening port:**
+The container sets `ASPNETCORE_URLS=http://*:8080` by default. Your app must explicitly listen on your mapped container port:
+
+**Method 1 - appsettings.json (recommended):**
+```json
+{
+  "Kestrel": {
+    "Endpoints": {
+      "Http": { "Url": "http://0.0.0.0:5000" }
+    }
+  }
+}
+```
+
+**Method 2 - Command line flag:**
+```python
+dotnet_run_background(
+    command=["dotnet", "run", "--urls", "http://0.0.0.0:5000"]
+)
+```
+
+**Example - Complete web API workflow:**
+```python
+# 1. Start container with port mapping
+dotnet_start_container(dotnet_version=8, ports={"5000": 8080})
+
+# 2. Create app that listens on port 5000 (matches container port)
+dotnet_write_file(
+    path="/workspace/api/appsettings.json",
+    content='{"Kestrel": {"Endpoints": {"Http": {"Url": "http://0.0.0.0:5000"}}}}'
+)
+
+# 3. Access at http://localhost:8080 (the HOST port)
+dotnet_test_endpoint(url="http://localhost:8080/health")
+```
+
+**Troubleshooting:**
+- Can't reach API? Check `dotnet_get_logs()` to see which port it's actually listening on
+- Seeing "Overriding address" warning? Your app config is correct, ignore the warning
+- Port conflict? Use auto-assign (`{"5000": 0}`) instead of specific host ports
+
+**Recommended Workflows:**
+
+**Option A1 - Web API with external access (✅ RECOMMENDED):**
+```python
+# 1. Start container WITH port mapping (must decide upfront)
+dotnet_start_container(dotnet_version=8, ports={"5000": 8080})
+
+# 2. Create project using dotnet CLI
+dotnet_execute_command(
+    command=["dotnet", "new", "webapi", "-n", "MyApi", "-o", "/workspace/MyApi"]
+)
+
+# 3. Add packages if needed
+dotnet_execute_command(
+    command=["dotnet", "add", "/workspace/MyApi", "package", "Swashbuckle.AspNetCore"]
+)
+
+# 4. Configure app to listen on container port 5000
+dotnet_write_file(
+    path="/workspace/MyApi/appsettings.json",
+    content='{"Kestrel": {"Endpoints": {"Http": {"Url": "http://0.0.0.0:5000"}}}}'
+)
+
+# 5. Run in background
+dotnet_run_background(
+    command=["dotnet", "run", "--project", "/workspace/MyApi"]
+)
+
+# 6. Access at http://localhost:8080
+```
+
+**Option A2 - Console app (no external access needed):**
+```python
+# 1. Start container WITHOUT ports (no external access)
+dotnet_start_container(dotnet_version=8)
+
+# 2. Create project using dotnet CLI
+dotnet_execute_command(
+    command=["dotnet", "new", "console", "-n", "MyApp", "-o", "/workspace/MyApp"]
+)
+
+# 3. Run directly
+dotnet_execute_command(
+    command=["dotnet", "run", "--project", "/workspace/MyApp"]
+)
+```
+
+**Benefits of CLI-first approach:**
+- ✅ Uses official .NET CLI tools (`dotnet new`, `dotnet add package`)
+- ✅ Correct project structure guaranteed
+- ✅ Standard .csproj format
+- ✅ Idiomatic .NET workflow
+
+**Option B - Manual file creation (for custom/minimal projects):**
+```python
+# Use when you need non-standard project structures or educational demos
+dotnet_start_container(dotnet_version=8)
+dotnet_write_file(path="/workspace/app/app.csproj", content="<Project>...")
+dotnet_write_file(path="/workspace/app/Program.cs", content="...")
+dotnet_execute_command(command=["dotnet", "build", "/workspace/app"])
+```
+
+**When to use each:**
+- **Option A1**: Web APIs, HTTP services (needs external access)
+- **Option A2**: Console apps, workers, batch jobs (internal only)
+- **Option B**: Educational demos, minimal examples, non-standard structures
 
 **Workflow example:**
 1. Call dotnet_start_container (optionally with dotnet_version)
@@ -272,6 +392,23 @@ The container is identified by its project_id.
             description="""Write a file to a persistent container.
 
 **Purpose**: Create or update files in a running container for project development.
+
+**For .NET Projects: Prefer dotnet CLI ✅**
+
+For standard .NET projects, use `dotnet_execute_command` with CLI tools instead:
+```python
+# ✅ Recommended: Use dotnet CLI
+dotnet_execute_command(command=["dotnet", "new", "webapi", "-n", "MyApi", "-o", "/workspace/MyApi"])
+
+# ❌ Avoid: Manual .csproj creation (error-prone)
+dotnet_write_file(path="/workspace/MyApi/MyApi.csproj", content="<Project>...")
+```
+
+**Use dotnet_write_file for:**
+- Configuration files (appsettings.json, appsettings.Development.json)
+- Custom source files after project creation
+- Non-standard project scenarios
+- Educational examples demonstrating specific concepts
 
 **RECOMMENDED WORKFLOW FOR CODE FILES:**
 When writing .NET code files (.cs, .csproj, etc.):
@@ -402,10 +539,27 @@ This creates a much better visual experience for the user to review code before 
 - When container doesn't exist
 - For file operations (use dedicated file tools)
 
-**Common commands**:
+**Common .NET CLI commands**:
+
+**Project Creation:**
+- Web API: ["dotnet", "new", "webapi", "-n", "MyApi", "-o", "/workspace/MyApi"]
+- Console app: ["dotnet", "new", "console", "-n", "MyApp", "-o", "/workspace/MyApp"]
+- Class library: ["dotnet", "new", "classlib", "-n", "MyLib", "-o", "/workspace/MyLib"]
+
+**Package Management:**
+- Add latest: ["dotnet", "add", "/workspace/MyApi", "package", "Newtonsoft.Json"]
+- Add specific version: ["dotnet", "add", "/workspace/MyApi", "package", "Dapper", "--version", "2.0.0"]
+- List packages: ["dotnet", "list", "/workspace/MyApi", "package"]
+
+**Build & Run:**
 - Build: ["dotnet", "build", "/workspace/MyApp"]
 - Run: ["dotnet", "run", "--project", "/workspace/MyApp"]
+- Run with args: ["dotnet", "run", "--project", "/workspace/MyApp", "--", "arg1", "arg2"]
 - Test: ["dotnet", "test", "/workspace/MyApp"]
+
+**Debugging:**
+- List templates: ["dotnet", "new", "list"]
+- Check version: ["dotnet", "--version"]
 - List files: ["ls", "-la", "/workspace"]
 
 **Timeout**:
@@ -1218,12 +1372,26 @@ async def execute_command(arguments: dict[str, Any]) -> list[TextContent]:
 
         output = "\n".join(output_lines)
 
-        response = fmt.format_human_readable_response(
-            status="success" if exit_code == 0 else "error",
-            output=output,
-            project_id=input_data.project_id,
-            container_id=container_id,
-        )
+        # CRITICAL: Pass output to error_details when command fails
+        # The formatter's error path doesn't display the 'output' parameter,
+        # so we must pass stdout/stderr via error_details to make them visible
+        if exit_code == 0:
+            # Success: use normal output parameter
+            response = fmt.format_human_readable_response(
+                status="success",
+                output=output,
+                project_id=input_data.project_id,
+                container_id=container_id,
+            )
+        else:
+            # Failure: pass output to error_details so it's visible
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"Command failed with exit code {exit_code}",
+                error_details=output,
+                project_id=input_data.project_id,
+                container_id=container_id,
+            )
 
         return [TextContent(type="text", text=response)]
 
@@ -1353,18 +1521,21 @@ async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
 
         async with httpx.AsyncClient(timeout=input_data.timeout) as client:
             # Make request with explicit arguments for type safety
+            # Only pass headers if not empty (httpx handles None differently than {})
+            headers = input_data.headers if input_data.headers else None
+
             if input_data.body and input_data.method in ["POST", "PUT", "PATCH"]:
                 response = await client.request(
                     input_data.method,
                     input_data.url,
-                    headers=input_data.headers,
+                    headers=headers,
                     content=input_data.body,
                 )
             else:
                 response = await client.request(
                     input_data.method,
                     input_data.url,
-                    headers=input_data.headers,
+                    headers=headers,
                 )
 
         response_time_ms = int((time.time() - start_time) * 1000)
@@ -1697,10 +1868,18 @@ def cleanup_all_containers() -> None:
     if docker_manager is not None:
         try:
             count = docker_manager.cleanup_all()
-            if count > 0:
+            try:
                 print(f"Shutdown cleanup: removed {count} container(s)", file=sys.stderr)
+            except (BrokenPipeError, OSError):
+                pass  # Ignore pipe errors during logging
         except Exception as e:
-            print(f"Shutdown cleanup error: {e}", file=sys.stderr)
+            # Log the actual error so we can debug
+            try:
+                print(f"Shutdown cleanup FAILED: {type(e).__name__}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            except (BrokenPipeError, OSError):
+                pass  # If we can't log, continue anyway
 
 
 def main() -> None:
@@ -1709,6 +1888,21 @@ def main() -> None:
 
     async def run_server() -> None:
         """Run server with stdio transport and background cleanup."""
+        # Initialize docker_manager first so cleanup can work
+        global docker_manager
+        if docker_manager is None:
+            try:
+                docker_manager = DockerContainerManager()
+            except Exception as e:
+                print(f"Failed to initialize Docker: {e}", file=sys.stderr)
+
+        # Clean up any zombie containers from previous sessions on startup
+        try:
+            print("Checking for zombie containers from previous sessions...", file=sys.stderr)
+        except (BrokenPipeError, OSError):
+            pass  # Pipes may already be closed
+        cleanup_all_containers()
+
         # Start background cleanup task
         cleanup_task = asyncio.create_task(background_cleanup_task(interval_seconds=300))
 
@@ -1720,12 +1914,19 @@ def main() -> None:
                     server.create_initialization_options(),
                 )
         finally:
-            # Cancel background task on shutdown
+            # Cancel background task
             cleanup_task.cancel()
             try:
                 await cleanup_task
             except asyncio.CancelledError:
                 pass
+
+            # CRITICAL: Clean up all containers on shutdown
+            try:
+                print("\nCleaning up containers on shutdown...", file=sys.stderr)
+            except (BrokenPipeError, OSError):
+                pass
+            cleanup_all_containers()
 
     try:
         asyncio.run(run_server())
