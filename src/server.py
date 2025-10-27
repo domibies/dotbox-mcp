@@ -1,6 +1,7 @@
 """FastMCP server for .NET code execution in Docker containers."""
 
 import asyncio
+import atexit
 import sys
 from typing import Any
 
@@ -1521,18 +1522,21 @@ async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
 
         async with httpx.AsyncClient(timeout=input_data.timeout) as client:
             # Make request with explicit arguments for type safety
+            # Only pass headers if not empty (httpx handles None differently than {})
+            headers = input_data.headers if input_data.headers else None
+
             if input_data.body and input_data.method in ["POST", "PUT", "PATCH"]:
                 response = await client.request(
                     input_data.method,
                     input_data.url,
-                    headers=input_data.headers,
+                    headers=headers,
                     content=input_data.body,
                 )
             else:
                 response = await client.request(
                     input_data.method,
                     input_data.url,
-                    headers=input_data.headers,
+                    headers=headers,
                 )
 
         response_time_ms = int((time.time() - start_time) * 1000)
@@ -1865,10 +1869,18 @@ def cleanup_all_containers() -> None:
     if docker_manager is not None:
         try:
             count = docker_manager.cleanup_all()
-            if count > 0:
+            try:
                 print(f"Shutdown cleanup: removed {count} container(s)", file=sys.stderr)
+            except (BrokenPipeError, OSError):
+                pass  # Ignore pipe errors during logging
         except Exception as e:
-            print(f"Shutdown cleanup error: {e}", file=sys.stderr)
+            # Log the actual error so we can debug
+            try:
+                print(f"Shutdown cleanup FAILED: {type(e).__name__}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            except (BrokenPipeError, OSError):
+                pass  # If we can't log, continue anyway
 
 
 def main() -> None:
@@ -1877,6 +1889,21 @@ def main() -> None:
 
     async def run_server() -> None:
         """Run server with stdio transport and background cleanup."""
+        # Initialize docker_manager first so cleanup can work
+        global docker_manager
+        if docker_manager is None:
+            try:
+                docker_manager = DockerContainerManager()
+            except Exception as e:
+                print(f"Failed to initialize Docker: {e}", file=sys.stderr)
+
+        # Clean up any zombie containers from previous sessions on startup
+        try:
+            print("Checking for zombie containers from previous sessions...", file=sys.stderr)
+        except (BrokenPipeError, OSError):
+            pass  # Pipes may already be closed
+        cleanup_all_containers()
+
         # Start background cleanup task
         cleanup_task = asyncio.create_task(background_cleanup_task(interval_seconds=300))
 
@@ -1888,12 +1915,19 @@ def main() -> None:
                     server.create_initialization_options(),
                 )
         finally:
-            # Cancel background task on shutdown
+            # Cancel background task
             cleanup_task.cancel()
             try:
                 await cleanup_task
             except asyncio.CancelledError:
                 pass
+
+            # CRITICAL: Clean up all containers on shutdown
+            try:
+                print("\nCleaning up containers on shutdown...", file=sys.stderr)
+            except (BrokenPipeError, OSError):
+                pass
+            cleanup_all_containers()
 
     try:
         asyncio.run(run_server())

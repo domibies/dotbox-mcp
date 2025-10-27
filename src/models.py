@@ -454,8 +454,8 @@ class TestEndpointInput(BaseModel):
         default="GET",
         description="HTTP method (default: GET)",
     )
-    headers: dict[str, str] | None = Field(
-        default=None,
+    headers: dict[str, str] = Field(
+        default_factory=dict,
         description="Optional HTTP headers (e.g., {'Content-Type': 'application/json'})",
     )
     body: str | None = Field(

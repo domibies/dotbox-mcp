@@ -782,7 +782,7 @@ class TestTestEndpointInput:
 
         assert input_data.url == "http://localhost:8080/health"
         assert input_data.method == "GET"  # Default
-        assert input_data.headers is None
+        assert input_data.headers == {}  # Default empty dict
         assert input_data.body is None
         assert input_data.timeout == 30  # Default
 
