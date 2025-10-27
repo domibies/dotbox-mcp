@@ -1341,7 +1341,7 @@ async def test_command_failure_shows_stderr_and_stdout(
     Before fix: "Command failed" with no error details
     After fix: Full stderr/stdout visible in error response
     """
-    from src.server import start_container, execute_command, stop_container
+    from src.server import execute_command, start_container, stop_container
 
     project_id = "test-error-output"
 

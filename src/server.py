@@ -1,7 +1,6 @@
 """FastMCP server for .NET code execution in Docker containers."""
 
 import asyncio
-import atexit
 import sys
 from typing import Any
 
