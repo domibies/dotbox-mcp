@@ -9,6 +9,9 @@ WORKDIR /workspace
 # Create non-root user for security
 RUN adduser -D -u 1000 sandbox
 
+# Give ownership of workspace to sandbox user
+RUN chown -R sandbox:sandbox /workspace
+
 # Switch to non-root user
 USER sandbox
 

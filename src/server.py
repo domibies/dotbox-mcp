@@ -255,6 +255,73 @@ dotnet_test_endpoint(url="http://localhost:8080/health")
 - Seeing "Overriding address" warning? Your app config is correct, ignore the warning
 - Port conflict? Use auto-assign (`{"5000": 0}`) instead of specific host ports
 
+**Recommended Workflows:**
+
+**Option A1 - Web API with external access (✅ RECOMMENDED):**
+```python
+# 1. Start container WITH port mapping (must decide upfront)
+dotnet_start_container(dotnet_version=8, ports={"5000": 8080})
+
+# 2. Create project using dotnet CLI
+dotnet_execute_command(
+    command=["dotnet", "new", "webapi", "-n", "MyApi", "-o", "/workspace/MyApi"]
+)
+
+# 3. Add packages if needed
+dotnet_execute_command(
+    command=["dotnet", "add", "/workspace/MyApi", "package", "Swashbuckle.AspNetCore"]
+)
+
+# 4. Configure app to listen on container port 5000
+dotnet_write_file(
+    path="/workspace/MyApi/appsettings.json",
+    content='{"Kestrel": {"Endpoints": {"Http": {"Url": "http://0.0.0.0:5000"}}}}'
+)
+
+# 5. Run in background
+dotnet_run_background(
+    command=["dotnet", "run", "--project", "/workspace/MyApi"]
+)
+
+# 6. Access at http://localhost:8080
+```
+
+**Option A2 - Console app (no external access needed):**
+```python
+# 1. Start container WITHOUT ports (no external access)
+dotnet_start_container(dotnet_version=8)
+
+# 2. Create project using dotnet CLI
+dotnet_execute_command(
+    command=["dotnet", "new", "console", "-n", "MyApp", "-o", "/workspace/MyApp"]
+)
+
+# 3. Run directly
+dotnet_execute_command(
+    command=["dotnet", "run", "--project", "/workspace/MyApp"]
+)
+```
+
+**Benefits of CLI-first approach:**
+- ✅ Uses official .NET CLI tools (`dotnet new`, `dotnet add package`)
+- ✅ Correct project structure guaranteed
+- ✅ Standard .csproj format
+- ✅ Idiomatic .NET workflow
+
+**Option B - Manual file creation (for custom/minimal projects):**
+```python
+# Use when you need non-standard project structures or educational demos
+dotnet_start_container(dotnet_version=8)
+dotnet_write_file(path="/workspace/app/app.csproj", content="<Project>...")
+dotnet_write_file(path="/workspace/app/Program.cs", content="...")
+dotnet_execute_command(command=["dotnet", "build", "/workspace/app"])
+```
+
+**When to use each:**
+- **Option A1**: Web APIs, HTTP services (needs external access)
+- **Option A2**: Console apps, workers, batch jobs (internal only)
+- **Option B**: Educational demos, minimal examples, non-standard structures
+
 **Workflow example:**
 1. Call dotnet_start_container (optionally with dotnet_version)
 2. Receive auto-generated project_id in response
@@ -325,6 +392,23 @@ The container is identified by its project_id.
             description="""Write a file to a persistent container.
 
 **Purpose**: Create or update files in a running container for project development.
+
+**For .NET Projects: Prefer dotnet CLI ✅**
+
+For standard .NET projects, use `dotnet_execute_command` with CLI tools instead:
+```python
+# ✅ Recommended: Use dotnet CLI
+dotnet_execute_command(command=["dotnet", "new", "webapi", "-n", "MyApi", "-o", "/workspace/MyApi"])
+
+# ❌ Avoid: Manual .csproj creation (error-prone)
+dotnet_write_file(path="/workspace/MyApi/MyApi.csproj", content="<Project>...")
+```
+
+**Use dotnet_write_file for:**
+- Configuration files (appsettings.json, appsettings.Development.json)
+- Custom source files after project creation
+- Non-standard project scenarios
+- Educational examples demonstrating specific concepts
 
 **RECOMMENDED WORKFLOW FOR CODE FILES:**
 When writing .NET code files (.cs, .csproj, etc.):
@@ -455,10 +539,27 @@ This creates a much better visual experience for the user to review code before 
 - When container doesn't exist
 - For file operations (use dedicated file tools)
 
-**Common commands**:
+**Common .NET CLI commands**:
+
+**Project Creation:**
+- Web API: ["dotnet", "new", "webapi", "-n", "MyApi", "-o", "/workspace/MyApi"]
+- Console app: ["dotnet", "new", "console", "-n", "MyApp", "-o", "/workspace/MyApp"]
+- Class library: ["dotnet", "new", "classlib", "-n", "MyLib", "-o", "/workspace/MyLib"]
+
+**Package Management:**
+- Add latest: ["dotnet", "add", "/workspace/MyApi", "package", "Newtonsoft.Json"]
+- Add specific version: ["dotnet", "add", "/workspace/MyApi", "package", "Dapper", "--version", "2.0.0"]
+- List packages: ["dotnet", "list", "/workspace/MyApi", "package"]
+
+**Build & Run:**
 - Build: ["dotnet", "build", "/workspace/MyApp"]
 - Run: ["dotnet", "run", "--project", "/workspace/MyApp"]
+- Run with args: ["dotnet", "run", "--project", "/workspace/MyApp", "--", "arg1", "arg2"]
 - Test: ["dotnet", "test", "/workspace/MyApp"]
+
+**Debugging:**
+- List templates: ["dotnet", "new", "list"]
+- Check version: ["dotnet", "--version"]
 - List files: ["ls", "-la", "/workspace"]
 
 **Timeout**:
@@ -1271,12 +1372,26 @@ async def execute_command(arguments: dict[str, Any]) -> list[TextContent]:
 
         output = "\n".join(output_lines)
 
-        response = fmt.format_human_readable_response(
-            status="success" if exit_code == 0 else "error",
-            output=output,
-            project_id=input_data.project_id,
-            container_id=container_id,
-        )
+        # CRITICAL: Pass output to error_details when command fails
+        # The formatter's error path doesn't display the 'output' parameter,
+        # so we must pass stdout/stderr via error_details to make them visible
+        if exit_code == 0:
+            # Success: use normal output parameter
+            response = fmt.format_human_readable_response(
+                status="success",
+                output=output,
+                project_id=input_data.project_id,
+                container_id=container_id,
+            )
+        else:
+            # Failure: pass output to error_details so it's visible
+            response = fmt.format_human_readable_response(
+                status="error",
+                error_message=f"Command failed with exit code {exit_code}",
+                error_details=output,
+                project_id=input_data.project_id,
+                container_id=container_id,
+            )
 
         return [TextContent(type="text", text=response)]
 

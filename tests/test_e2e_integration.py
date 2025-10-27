@@ -1325,3 +1325,60 @@ app.Run();
 
             finally:
                 await stop_container({"project_id": project_id})
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_command_failure_shows_stderr_and_stdout(
+    docker_manager: DockerContainerManager,
+) -> None:
+    """Test that failed commands show stderr/stdout in error response.
+
+    This is a critical UX issue: when commands fail, users MUST see the
+    error output to debug. This test verifies the fix for:
+    https://github.com/user-feedback/issue-123
+
+    Before fix: "Command failed" with no error details
+    After fix: Full stderr/stdout visible in error response
+    """
+    from src.server import start_container, execute_command, stop_container
+
+    project_id = "test-error-output"
+
+    try:
+        # Start container
+        start_result = await start_container(
+            {"dotnet_version": "8", "project_id": project_id}
+        )
+        assert len(start_result) == 1
+
+        # Execute command that will fail
+        result = await execute_command(
+            {
+                "project_id": project_id,
+                "command": ["dotnet", "new", "invalid-template-that-does-not-exist"],
+            }
+        )
+
+        assert len(result) == 1
+        response_text = result[0].text
+
+        # CRITICAL: Error response MUST contain stderr output
+        # The command will fail with a message about template not found
+        assert "exit code" in response_text.lower() or "Exit code" in response_text
+        assert (
+            "stderr" in response_text.lower()
+            or "Stderr" in response_text
+            or "could not be found" in response_text.lower()
+            or "template" in response_text.lower()
+        ), f"Expected stderr/error details in response, got: {response_text}"
+
+        # Verify it's marked as error/failure
+        assert (
+            "failed" in response_text.lower()
+            or "error" in response_text.lower()
+            or "✗" in response_text
+        ), f"Expected error status in response, got: {response_text}"
+
+    finally:
+        await stop_container({"project_id": project_id})
