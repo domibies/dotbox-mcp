@@ -1162,7 +1162,20 @@ app.Run();
                 }
             )
 
-            # Start web server
+            # Build project first (explicit, faster feedback on build errors)
+            from src.server import execute_command
+
+            build_result = await execute_command(
+                {
+                    "project_id": "test-mcp-ports",
+                    "command": ["dotnet", "build", "/workspace/TestApi"],
+                    "timeout": 60,
+                }
+            )
+            assert len(build_result) == 1
+            assert "success" in build_result[0].text.lower()
+
+            # Start web server (with --no-build since we already built)
             run_result = await run_background(
                 {
                     "project_id": "test-mcp-ports",
@@ -1171,10 +1184,11 @@ app.Run();
                         "run",
                         "--project",
                         "/workspace/TestApi",
+                        "--no-build",
                         "--urls",
                         "http://0.0.0.0:5000",
                     ],
-                    "wait_for_ready": 8,
+                    "wait_for_ready": 5,
                 }
             )
             assert len(run_result) == 1
@@ -1263,6 +1277,20 @@ app.Run();
                 }
             )
 
+            # Build project first (explicit, faster feedback on build errors)
+            from src.server import execute_command
+
+            build_result = await execute_command(
+                {
+                    "project_id": "test-auto-port",
+                    "command": ["dotnet", "build", "/workspace/TestApi"],
+                    "timeout": 60,
+                }
+            )
+            assert len(build_result) == 1
+            assert "success" in build_result[0].text.lower()
+
+            # Start web server (with --no-build since we already built)
             await run_background(
                 {
                     "project_id": "test-auto-port",
@@ -1271,10 +1299,11 @@ app.Run();
                         "run",
                         "--project",
                         "/workspace/TestApi",
+                        "--no-build",
                         "--urls",
                         "http://0.0.0.0:5000",
                     ],
-                    "wait_for_ready": 8,
+                    "wait_for_ready": 5,
                 }
             )
 
