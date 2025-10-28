@@ -17,10 +17,15 @@ class TestDockerContainerManager:
         return MagicMock()
 
     @pytest.fixture
-    def manager(self, mock_docker_client: MagicMock) -> DockerContainerManager:
+    def manager(self, mock_docker_client: MagicMock, monkeypatch: pytest.MonkeyPatch) -> DockerContainerManager:
         """Create DockerContainerManager with mocked client."""
+        # Set local registry mode for tests
+        monkeypatch.setenv("DOTBOX_SANDBOX_REGISTRY", "local")
         with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
-            return DockerContainerManager()
+            manager = DockerContainerManager()
+            # Mock _ensure_image_exists to avoid image checks in unit tests
+            manager._ensure_image_exists = MagicMock()  # type: ignore
+            return manager
 
     def test_initialization(self, manager: DockerContainerManager) -> None:
         """Test that manager initializes correctly."""

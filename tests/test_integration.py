@@ -297,9 +297,11 @@ class TestMCPIntegration:
 
     @pytest.mark.asyncio
     async def test_different_dotnet_versions(
-        self, mock_docker_client: MagicMock
+        self, mock_docker_client: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test execution with different .NET versions."""
+        # Set local registry mode for tests
+        monkeypatch.setenv("DOTBOX_SANDBOX_REGISTRY", "local")
         mock_empty = MagicMock()
         mock_empty.output = b""
         mock_empty.exit_code = 0
@@ -324,6 +326,8 @@ class TestMCPIntegration:
             from src.executor import DotNetExecutor
 
             docker_manager = DockerContainerManager()
+            # Mock _ensure_image_exists to avoid image checks in unit tests
+            docker_manager._ensure_image_exists = MagicMock()  # type: ignore
             executor = DotNetExecutor(docker_manager=docker_manager)
 
             # Test each version

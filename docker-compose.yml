@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  dotbox-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dotbox-mcp:latest
+    container_name: dotbox-mcp
+    stdin_open: true        # Required for MCP stdio transport
+    tty: false              # Don't allocate pseudo-TTY (stdio mode)
+
+    volumes:
+      # Mount Docker socket to control host daemon
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      # Optional: enable debug logging
+      - DEBUG=${DEBUG:-0}
+      # Use local images for development
+      - DOTBOX_SANDBOX_REGISTRY=local
+
+    # Optional: resource limits for server container itself
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    # Restart policy (optional, depends on use case)
+    restart: unless-stopped
