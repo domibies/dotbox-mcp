@@ -1,10 +1,12 @@
 """Docker container management for .NET sandboxes."""
 
+import os
+import sys
 import time
 import uuid
 from dataclasses import dataclass
 
-from docker.errors import APIError, DockerException, NotFound
+from docker.errors import APIError, DockerException, ImageNotFound, NotFound
 
 import docker
 
@@ -43,6 +45,65 @@ class DockerContainerManager:
         # Track last activity timestamp for each container (for idle cleanup)
         self.last_activity: dict[str, float] = {}
 
+        # Configure image registry (allow override for local development)
+        self.sandbox_registry = os.getenv(
+            "DOTBOX_SANDBOX_REGISTRY", "ghcr.io/domibies/dotbox-mcp/dotnet-sandbox"
+        )
+
+    def _get_image_name(self, dotnet_version: str) -> str:
+        """Get full image name with registry prefix.
+
+        Args:
+            dotnet_version: .NET version (8, 9, 10-rc2)
+
+        Returns:
+            Full image name (e.g., "ghcr.io/.../dotnet-sandbox:8")
+        """
+        if self.sandbox_registry == "local":
+            # Local development: use locally built images
+            return f"dotnet-sandbox:{dotnet_version}"
+        else:
+            # Production: use registry images
+            return f"{self.sandbox_registry}:{dotnet_version}"
+
+    def _ensure_image_exists(self, dotnet_version: str) -> None:
+        """Ensure sandbox image exists locally, pulling if necessary.
+
+        Args:
+            dotnet_version: .NET version (8, 9, 10-rc2)
+
+        Raises:
+            RuntimeError: If image cannot be pulled or found
+        """
+        image_name = self._get_image_name(dotnet_version)
+
+        try:
+            # Check if image exists locally
+            self.client.images.get(image_name)
+            # Image found, no action needed
+        except ImageNotFound:
+            # Image not found, attempt to pull
+            if self.sandbox_registry != "local":
+                print(
+                    f"Sandbox image not found locally, pulling {image_name}...",
+                    file=sys.stderr,
+                )
+                try:
+                    self.client.images.pull(image_name)
+                    print(f"Successfully pulled {image_name}", file=sys.stderr)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to pull sandbox image '{image_name}'. "
+                        f"Error: {e}. "
+                        f"Ensure Docker is running and you have internet access."
+                    ) from e
+            else:
+                # Local mode but image not found
+                raise RuntimeError(
+                    f"Sandbox image '{image_name}' not found locally. "
+                    f"Build it with: cd docker && ./build-images.sh"
+                ) from None
+
     def create_container(
         self,
         dotnet_version: str,
@@ -62,12 +123,15 @@ class DockerContainerManager:
         Raises:
             APIError: If container creation fails
         """
+        # Ensure sandbox image exists (pull if necessary)
+        self._ensure_image_exists(dotnet_version)
+
         # Generate human-readable container name
         short_id = str(uuid.uuid4())[:8]
         container_name = f"dotnet{dotnet_version}-{project_id}-{short_id}"
 
-        # Build image name
-        image = f"dotnet-sandbox:{dotnet_version}"
+        # Get full image name (registry or local)
+        image = self._get_image_name(dotnet_version)
 
         # Configure labels
         labels = {
