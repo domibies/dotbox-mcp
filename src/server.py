@@ -1461,8 +1461,8 @@ async def run_background(arguments: dict[str, Any]) -> list[TextContent]:
 
         # Wait for process to start
         if input_data.wait_for_ready > 0:
-            import time
-            time.sleep(input_data.wait_for_ready)
+            import asyncio
+            await asyncio.sleep(input_data.wait_for_ready)
 
         # Check if process started successfully
         response = fmt.format_human_readable_response(
