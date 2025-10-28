@@ -1,7 +1,15 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine
 
-# Install bash and curl for debugging
-RUN apk add --no-cache bash curl
+# Install LLM-usable CLI tools
+RUN apk add --no-cache \
+    bash \
+    curl \
+    git \
+    jq \
+    tree \
+    sqlite \
+    ca-certificates \
+    tzdata
 
 # Set working directory
 WORKDIR /workspace

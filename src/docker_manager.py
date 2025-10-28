@@ -104,6 +104,16 @@ class DockerContainerManager:
 
             return container_id
         except APIError as e:
+            # Clean up orphaned container if it was created but failed to start
+            # This commonly happens with port conflicts - Docker creates the container
+            # but fails during the start phase when binding ports
+            try:
+                failed_container = self.client.containers.get(container_name)
+                failed_container.remove(force=True)
+            except Exception:
+                pass  # Container might not exist, which is fine
+
+            # Re-raise the original error with context
             raise APIError(f"Failed to create container: {e}") from e
 
     def execute_command(

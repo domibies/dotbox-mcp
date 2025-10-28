@@ -169,6 +169,15 @@ The container is automatically cleaned up after execution.
 This tool creates and starts a long-running container that can be used across multiple tool calls.
 Files live entirely inside the container (no volume mounting), providing a clean sandbox environment.
 
+**Container Capabilities:**
+Containers include git, jq, sqlite3, and tree for advanced workflows:
+- Clone and test existing GitHub repositories
+- Parse JSON API responses with jq
+- Query SQLite databases created by EF Core
+- Visualize project structure with tree
+
+Use dotnet_execute_command() to run these tools after starting a container.
+
 **Zero-config usage:**
 - Simply call this tool with just the .NET version (or even with no parameters)
 - Project ID is auto-generated as: `dotnet{version}-proj-{random}`
@@ -561,6 +570,42 @@ This creates a much better visual experience for the user to review code before 
 - List templates: ["dotnet", "new", "list"]
 - Check version: ["dotnet", "--version"]
 - List files: ["ls", "-la", "/workspace"]
+
+**Enhanced Container Tools (Available in Sandbox):**
+- **Git**: Clone repos and inspect history
+  - ["git", "clone", "https://github.com/user/aspnet-project.git"]
+  - ["git", "log", "--oneline", "-10"]
+  - ["git", "diff", "HEAD~1"]
+- **jq**: Parse JSON responses from APIs
+  - ["sh", "-c", "curl -s http://localhost:5000/api/users | jq '.[]'"]
+  - ["sh", "-c", "curl -s http://localhost:5000/api/data | jq '.items[] | {name, value}'"]
+  - ["sh", "-c", "echo '{}' | jq empty"]  # Validate JSON
+- **sqlite3**: Query SQLite databases (EF Core)
+  - ["sqlite3", "/workspace/app.db", "SELECT * FROM Users LIMIT 10"]
+  - ["sqlite3", "/workspace/app.db", ".schema Users"]
+  - ["sqlite3", "/workspace/app.db", ".tables"]
+- **tree**: Visualize project structure
+  - ["tree", "/workspace", "-L", "2", "-I", "bin|obj"]
+  - ["tree", "-d", "-L", "3"]  # Directories only
+
+These tools enable workflows like testing existing GitHub projects, parsing API JSON responses,
+inspecting EF Core database state, and understanding project organization.
+
+**CRITICAL: Port Access Inside vs Outside Container:**
+
+Commands executed via this tool run INSIDE the container. When accessing web endpoints:
+
+- **From inside container** (this tool, curl, etc.): Use the CONTAINER port
+  - Example: ["sh", "-c", "curl http://localhost:5000/api/health"]
+  - The app listens on port 5000 inside the container, so use 5000
+
+- **From outside container** (host machine, dotnet_test_endpoint): Use the HOST port
+  - Example: dotnet_test_endpoint(url="http://localhost:8080/api/health")
+  - Port mapping {"5000": 8080} means: container:5000 → host:8080
+
+**Common mistake**: Using host port (8080) in curl commands inside container - this will fail!
+- ❌ Wrong: ["sh", "-c", "curl http://localhost:8080/api"]  # 8080 doesn't exist inside
+- ✅ Correct: ["sh", "-c", "curl http://localhost:5000/api"]  # 5000 is the app's port
 
 **Timeout**:
 - Default: 30 seconds
@@ -1020,21 +1065,50 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        # Docker not available
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
-            error_message="Docker is not available",
-            error_details=str(e),
-            suggestions=[
-                "Ensure Docker is installed and running",
-                "Check Docker socket permissions",
-                "Verify Docker images are built (run docker/build-images.sh)",
-            ],
+        # Check if this is a port conflict error (must check before generic Docker error)
+        error_msg = str(e).lower()
+        is_port_conflict = any(
+            phrase in error_msg
+            for phrase in [
+                "address already in use",
+                "bind: address already in use",
+                "port is already allocated",
+                "failed to set up container networking",
+            ]
         )
+
+        if is_port_conflict and input_data.ports:
+            # Port conflict - provide actionable suggestions to LLM
+            # Build auto-assign example
+            auto_ports = ', '.join(f"'{cp}': 0" for cp in input_data.ports.keys())
+
+            error_response = OutputFormatter().format_human_readable_response(
+                status="error",
+                error_message="Port conflict: One or more requested ports are already in use",
+                error_details=str(e),
+                suggestions=[
+                    f"Use auto-assigned ports instead: dotnet_start_container(project_id='{input_data.project_id}', ports={{{auto_ports}}})",
+                    "Check which containers are using the port: dotnet_list_containers()",
+                    "Stop the conflicting container if no longer needed",
+                    "Use different host ports that are not occupied",
+                ],
+            )
+        else:
+            # Generic Docker error (daemon not running, image not found, etc.)
+            error_response = OutputFormatter().format_human_readable_response(
+                status="error",
+                error_message="Docker error",
+                error_details=str(e),
+                suggestions=[
+                    "Ensure Docker is installed and running",
+                    "Check Docker socket permissions",
+                    "Verify Docker images are built (run docker/build-images.sh)",
+                ],
+            )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        # Unexpected error
+        # Other unexpected error
         error_response = OutputFormatter().format_human_readable_response(
             status="error",
             error_message="Failed to start container",
