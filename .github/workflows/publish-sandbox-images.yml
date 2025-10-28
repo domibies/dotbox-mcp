@@ -1,14 +1,9 @@
 name: Publish Sandbox Images
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docker/dotnet-*.dockerfile'
-      - 'docker/build-images.sh'
-      - '.github/workflows/publish-sandbox-images.yml'
-  workflow_dispatch:  # Allow manual trigger
+  release:
+    types: [published]
+  workflow_dispatch:  # Allow manual trigger for security updates
     inputs:
       dotnet_versions:
         description: '.NET versions to build (comma-separated: 8,9,10-rc2 or "all")'
@@ -49,8 +44,8 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ matrix.dotnet_version }}
-            type=raw,value=${{ matrix.dotnet_version }}-{{sha}}
-            type=raw,value=${{ matrix.dotnet_version }}-{{date 'YYYYMMDD'}}
+            type=raw,value=${{ matrix.dotnet_version }}-{{tag}},enable=${{ github.event_name == 'release' }}
+            type=raw,value=${{ matrix.dotnet_version }}-latest
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
