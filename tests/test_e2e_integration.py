@@ -1411,3 +1411,258 @@ async def test_command_failure_shows_stderr_and_stdout(
 
     finally:
         await stop_container({"project_id": project_id})
+
+
+@pytest.mark.e2e
+class TestE2EEnhancedTools:
+    """E2E tests for LLM-usable tools (git, jq, sqlite3, tree) in sandbox images."""
+
+    @pytest.mark.asyncio
+    async def test_git_available(self, docker_manager: DockerContainerManager) -> None:
+        """Verify git is installed and functional in sandbox."""
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-git",
+        )
+
+        try:
+            # Test git is available
+            stdout, stderr, exit_code = docker_manager.execute_command(
+                container_id=container_id,
+                command=["git", "--version"],
+                timeout=5,
+            )
+            assert exit_code == 0, f"git --version failed: {stderr}"
+            assert "git version" in stdout.lower(), f"Unexpected git output: {stdout}"
+
+        finally:
+            docker_manager.stop_container(container_id)
+
+    @pytest.mark.asyncio
+    async def test_jq_available(self, docker_manager: DockerContainerManager) -> None:
+        """Verify jq is installed and functional in sandbox."""
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-jq",
+        )
+
+        try:
+            # Test jq is available
+            stdout, stderr, exit_code = docker_manager.execute_command(
+                container_id=container_id,
+                command=["jq", "--version"],
+                timeout=5,
+            )
+            assert exit_code == 0, f"jq --version failed: {stderr}"
+            assert "jq" in stdout.lower(), f"Unexpected jq output: {stdout}"
+
+            # Test jq can parse JSON
+            stdout, stderr, exit_code = docker_manager.execute_command(
+                container_id=container_id,
+                command=["sh", "-c", 'echo \'{"name":"test","value":42}\' | jq .name'],
+                timeout=5,
+            )
+            assert exit_code == 0, f"jq parse failed: {stderr}"
+            assert '"test"' in stdout, f"Expected jq to extract name field: {stdout}"
+
+        finally:
+            docker_manager.stop_container(container_id)
+
+    @pytest.mark.asyncio
+    async def test_sqlite_available(self, docker_manager: DockerContainerManager) -> None:
+        """Verify sqlite3 is installed and functional in sandbox."""
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-sqlite",
+        )
+
+        try:
+            # Test sqlite3 is available
+            stdout, stderr, exit_code = docker_manager.execute_command(
+                container_id=container_id,
+                command=["sqlite3", "--version"],
+                timeout=5,
+            )
+            assert exit_code == 0, f"sqlite3 --version failed: {stderr}"
+            assert len(stdout) > 0, "Expected version output from sqlite3"
+
+            # Test sqlite3 can create and query database
+            commands = [
+                "sqlite3 /workspace/test.db 'CREATE TABLE test (id INTEGER, name TEXT)'",
+                "sqlite3 /workspace/test.db \"INSERT INTO test VALUES (1, 'hello')\"",
+                "sqlite3 /workspace/test.db 'SELECT * FROM test'",
+            ]
+            for cmd in commands:
+                stdout, stderr, exit_code = docker_manager.execute_command(
+                    container_id=container_id,
+                    command=["sh", "-c", cmd],
+                    timeout=5,
+                )
+                assert exit_code == 0, f"sqlite3 command failed: {cmd}\nstderr: {stderr}"
+
+            # Verify data was inserted
+            assert "1|hello" in stdout, f"Expected query result: {stdout}"
+
+        finally:
+            docker_manager.stop_container(container_id)
+
+    @pytest.mark.asyncio
+    async def test_tree_available(self, docker_manager: DockerContainerManager) -> None:
+        """Verify tree is installed and functional in sandbox."""
+        container_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-tree",
+        )
+
+        try:
+            # Test tree is available
+            stdout, stderr, exit_code = docker_manager.execute_command(
+                container_id=container_id,
+                command=["tree", "--version"],
+                timeout=5,
+            )
+            assert exit_code == 0, f"tree --version failed: {stderr}"
+            assert "tree" in stdout.lower(), f"Unexpected tree output: {stdout}"
+
+            # Create directory structure and visualize with tree
+            docker_manager.execute_command(
+                container_id=container_id,
+                command=["sh", "-c", "mkdir -p /workspace/src/Controllers /workspace/tests"],
+                timeout=5,
+            )
+
+            stdout, stderr, exit_code = docker_manager.execute_command(
+                container_id=container_id,
+                command=["tree", "/workspace", "-L", "2"],
+                timeout=5,
+            )
+            assert exit_code == 0, f"tree command failed: {stderr}"
+            assert "src" in stdout and "Controllers" in stdout, f"Expected tree output: {stdout}"
+
+        finally:
+            docker_manager.stop_container(container_id)
+
+    @pytest.mark.asyncio
+    async def test_tools_available_across_all_versions(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Verify all tools are available in .NET 8, 9, and 10 images."""
+        tools = ["git", "jq", "sqlite3", "tree"]
+        versions = ["8", "9", "10-rc2"]
+
+        for version in versions:
+            container_id = docker_manager.create_container(
+                dotnet_version=version,
+                project_id=f"test-tools-{version}",
+            )
+
+            try:
+                for tool in tools:
+                    stdout, stderr, exit_code = docker_manager.execute_command(
+                        container_id=container_id,
+                        command=[tool, "--version"],
+                        timeout=5,
+                    )
+                    assert (
+                        exit_code == 0
+                    ), f"{tool} not available in .NET {version} image: {stderr}"
+
+            finally:
+                docker_manager.stop_container(container_id)
+
+
+@pytest.mark.e2e
+class TestE2EPortConflictHandling:
+    """E2E tests for port conflict detection and cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_port_conflict_cleans_up_orphaned_container(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test that failed containers due to port conflicts are cleaned up."""
+        # Start first container with port 9876
+        container1_id = docker_manager.create_container(
+            dotnet_version="8",
+            project_id="test-port-first",
+            port_mapping={5000: 9876},
+        )
+
+        try:
+            # Attempt to create second container with same port (should fail)
+            with pytest.raises(Exception) as exc_info:
+                docker_manager.create_container(
+                    dotnet_version="8",
+                    project_id="test-port-second",
+                    port_mapping={5000: 9876},  # Conflict!
+                )
+
+            # Verify error mentions port/networking issue
+            error_msg = str(exc_info.value).lower()
+            assert any(
+                phrase in error_msg
+                for phrase in [
+                    "address already in use",
+                    "port",
+                    "failed to set up container networking",
+                ]
+            ), f"Expected port conflict error, got: {error_msg}"
+
+            # Verify no orphaned container exists
+            # Check Docker directly to be sure
+            all_containers = docker_manager.client.containers.list(all=True, filters={"name": "test-port-second"})
+            assert len(all_containers) == 0, "Orphaned container was not cleaned up!"
+
+        finally:
+            docker_manager.stop_container(container1_id)
+
+    @pytest.mark.asyncio
+    async def test_port_conflict_error_message_has_suggestions(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
+        """Test that port conflict errors include actionable suggestions for LLM."""
+        from src.server import start_container
+
+        # Start first container
+        result1 = await start_container(
+            {"dotnet_version": "8", "project_id": "occupy-port", "ports": {"5000": 9877}}
+        )
+        assert len(result1) == 1
+        assert "occupy-port" in result1[0].text
+
+        try:
+            # Try to start second container with same port
+            result2 = await start_container(
+                {"dotnet_version": "8", "project_id": "conflict-port", "ports": {"5000": 9877}}
+            )
+
+            assert len(result2) == 1
+            response_text = result2[0].text.lower()
+
+            # Verify error message mentions port conflict
+            assert "port" in response_text and (
+                "conflict" in response_text or "already in use" in response_text
+            ), f"Expected port conflict error, got: {result2[0].text}"
+
+            # Verify suggestions are provided
+            assert any(
+                phrase in response_text
+                for phrase in [
+                    "auto-assign",
+                    "ports=",
+                    ": 0",
+                    "list_containers",
+                    "stop",
+                ]
+            ), f"Expected actionable suggestions in error, got: {result2[0].text}"
+
+            # Verify no orphaned container exists
+            all_containers = docker_manager.client.containers.list(
+                all=True, filters={"name": "conflict-port"}
+            )
+            assert len(all_containers) == 0, "Orphaned container was not cleaned up!"
+
+        finally:
+            # Cleanup first container
+            from src.server import stop_container
+
+            await stop_container({"project_id": "occupy-port"})
