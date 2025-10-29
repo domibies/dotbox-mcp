@@ -23,9 +23,10 @@ RUN uv sync --frozen --no-dev
 COPY src ./src
 COPY README.md ./
 
-# Create non-root user for security
-# Note: Must be in docker group to access socket (handled at runtime)
+# Create non-root user and add to docker group for socket access
 RUN useradd -m -u 1000 dotbox && \
+    groupadd -g 999 docker || true && \
+    usermod -aG docker dotbox && \
     chown -R dotbox:dotbox /app
 
 USER dotbox
