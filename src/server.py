@@ -153,6 +153,35 @@ The container is automatically cleaned up after execution.
 **Package specification:**
 - Without version: "Newtonsoft.Json" (auto-fetches latest stable)
 - With version: "Newtonsoft.Json@13.0.3" (uses specific version)
+
+**CRITICAL - Using External NuGet Packages:**
+Before using any NuGet package (whether requested by user or chosen by you):
+1. **ALWAYS search the web first** for current documentation and API usage
+   - Use WebSearch to find: "[package name] C# latest documentation"
+   - Check official docs, NuGet.org description, or GitHub README
+   - Find recent code examples showing current API usage
+2. **THEN write code** using the verified current API
+3. Add the package to the packages parameter
+
+**Why this matters:**
+- Package APIs change between versions (breaking changes)
+- Your training data may be outdated for specific packages
+- Incorrect API usage wastes user time with compilation errors
+
+**When to ALWAYS search:**
+- Any external package beyond System.* namespaces
+- Specialized libraries (HTTP clients, ORMs, cloud SDKs, ML, testing frameworks)
+- If you're about to use a package and feel ANY uncertainty about the current API
+
+**Example workflow:**
+```
+User: "Parse JSON with Newtonsoft.Json"
+Assistant:
+1. WebSearch("Newtonsoft.Json C# latest API example")
+2. Review current JsonConvert.DeserializeObject usage
+3. Write code with correct API
+4. Execute with packages=["Newtonsoft.Json"]
+```
             """,
             inputSchema=ExecuteSnippetInput.model_json_schema(),
             annotations=ToolAnnotations(
@@ -560,6 +589,14 @@ This creates a much better visual experience for the user to review code before 
 - Add specific version: ["dotnet", "add", "/workspace/MyApi", "package", "Dapper", "--version", "2.0.0"]
 - List packages: ["dotnet", "list", "/workspace/MyApi", "package"]
 
+**CRITICAL - Before Adding NuGet Packages:**
+When adding any external NuGet package (whether user-requested or chosen by you):
+1. **FIRST search the web** for current package documentation and API usage
+2. Verify the correct namespace, class names, and method signatures
+3. THEN add the package and write code with the verified current API
+
+This prevents compilation errors from outdated API knowledge. See dotnet_execute_snippet for detailed guidance.
+
 **Build & Run:**
 - Build: ["dotnet", "build", "/workspace/MyApp"]
 - Run: ["dotnet", "run", "--project", "/workspace/MyApp"]
@@ -687,9 +724,15 @@ Commands executed via this tool run INSIDE the container. When accessing web end
 - Request body for POST/PUT
 - Configurable timeout
 - Returns status code, headers, and response body
+- **Automatic localhost translation**: When MCP server runs in container, `localhost` is automatically translated to `host.docker.internal` for seamless access to host-mapped ports
+
+**URL Handling**:
+- Always use `localhost` in your URLs - translation happens automatically
+- Example: `http://localhost:8080/health` works in all deployment modes (dev/docker/production)
+- Port numbers should match the HOST port from `dotnet_start_container(ports={...})`
 
 **Common use cases**:
-- GET /health to check if API is ready
+- GET /health to check if API is ready: `dotnet_test_endpoint(url="http://localhost:8080/health")`
 - POST /api/users with JSON body to test create endpoint
 - GET /api/data to verify data endpoints
 - Testing authentication with Authorization headers
@@ -882,6 +925,34 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await list_containers(arguments)
 
     raise ValueError(f"Unknown tool: {name}")
+
+
+def _running_in_container() -> bool:
+    """Detect if the MCP server is running inside a Docker container.
+
+    Returns:
+        True if running in container, False otherwise
+    """
+    import os
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def _translate_localhost_url(url: str) -> str:
+    """Translate localhost URLs to host.docker.internal when running in container.
+
+    This enables the MCP server (running in a container) to access sandbox containers
+    whose ports are mapped to the host machine.
+
+    Args:
+        url: Original URL (may contain localhost or 127.0.0.1)
+
+    Returns:
+        Translated URL with host.docker.internal if running in container
+    """
+    if _running_in_container():
+        url = url.replace("localhost", "host.docker.internal")
+        url = url.replace("127.0.0.1", "host.docker.internal")
+    return url
 
 
 async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
@@ -1589,6 +1660,10 @@ async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
         # Initialize formatter
         _, _, fmt = _initialize_components()
 
+        # Translate localhost → host.docker.internal when MCP server runs in container
+        # This allows the MCP container to access sandbox containers via host ports
+        url = _translate_localhost_url(input_data.url)
+
         # Make HTTP request using httpx
         import time
         start_time = time.time()
@@ -1601,14 +1676,14 @@ async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
             if input_data.body and input_data.method in ["POST", "PUT", "PATCH"]:
                 response = await client.request(
                     input_data.method,
-                    input_data.url,
+                    url,
                     headers=headers,
                     content=input_data.body,
                 )
             else:
                 response = await client.request(
                     input_data.method,
-                    input_data.url,
+                    url,
                     headers=headers,
                 )
 
