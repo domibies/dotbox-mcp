@@ -1,12 +1,10 @@
 # dotbox-mcp
 
-**Work in Progress** 🚧
-
-A Model Context Protocol (MCP) server that enables LLMs to execute .NET workloads in isolated Docker containers. Think of it as a secure sandbox where Claude can write C# code, build projects, host web APIs, and test across multiple .NET versions - all without affecting your local environment.
+A Model Context Protocol (MCP) server that enables LLMs to execute .NET workloads in isolated Docker containers. Write C# code, build projects, host web APIs, and test across multiple .NET versions - all from within Claude Desktop.
 
 Built with FastMCP (Python) and Docker SDK.
 
-## What It Does (Sneak Peek)
+## Features
 
 This MCP server is designed around **agent-centric workflows** - providing complete end-to-end tools rather than low-level Docker commands:
 
@@ -18,73 +16,171 @@ This MCP server is designed around **agent-centric workflows** - providing compl
 
 Under the hood, it manages Alpine-based Docker images with .NET SDKs, handles build/execution orchestration, and formats output to stay within MCP's constraints.
 
-## Status
+## Quick Start
 
-Currently implementing core functionality using strict TDD principles (unit tests → implementation → E2E validation). The server handles basic workflows but is actively evolving based on real-world usage feedback.
+**Requirements:**
+- macOS with Docker Desktop installed and running
+- Claude Desktop
 
-**Latest:** Port mapping and web API hosting tools are functional. Working on enhanced examples and documentation based on Claude Desktop integration testing.
+### Automatic Installation (Recommended)
 
-Not yet ready for production use - API signatures may change.
+Install with one command:
 
-## Requirements
+```bash
+curl -fsSL https://raw.githubusercontent.com/domibies/dotbox-mcp/main/scripts/install.sh | bash
+```
 
-- Python 3.10+
-- Docker
-- uv (dependency manager)
+**What the installer does:**
+- Verifies Docker is installed and running
+- Updates Claude Desktop config (preserves other MCP servers)
+- Configures to use published Docker images from GHCR
 
-## Running Locally (Development)
+### Manual Installation
 
-To run this WIP version from the development folder:
+If you prefer to install manually:
 
-1. **Clone the repository:**
+1. **Detect your docker GID:**
    ```bash
-   git clone https://github.com/yourusername/dotbox-mcp.git
-   cd dotbox-mcp
+   stat -f %g /var/run/docker.sock
    ```
 
-2. **Install dependencies:**
-   ```bash
-   uv sync
-   ```
-
-3. **Build Docker images:**
-   ```bash
-   cd docker
-   ./build-images.sh
-   cd ..
-   ```
-
-4. **Find the absolute path to uv:**
-   ```bash
-   which uv
-   ```
-
-   **Note:** Claude Desktop doesn't inherit your shell's PATH on macOS/Linux. GUI applications get a minimal system PATH that doesn't include tools installed via Homebrew, cargo, asdf, etc. You must use the absolute path.
-
-5. **Configure Claude Desktop:**
-
-   Add to your `claude_desktop_config.json`:
+2. **Edit Claude Desktop config** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
    ```json
    {
      "mcpServers": {
        "dotbox-mcp": {
-         "command": "/absolute/path/to/uv",
+         "command": "docker",
          "args": [
-           "--directory",
-           "/absolute/path/to/dotbox-mcp",
            "run",
-           "python",
-           "-m",
-           "src.server"
+           "--rm",
+           "-i",
+           "--add-host",
+           "host.docker.internal:host-gateway",
+           "--user",
+           "1000:YOUR_DOCKER_GID",
+           "-v",
+           "/var/run/docker.sock:/var/run/docker.sock",
+           "ghcr.io/domibies/dotbox-mcp:latest"
          ]
        }
      }
    }
    ```
 
-   Replace `/absolute/path/to/uv` with the output from `which uv` (e.g., `/Users/you/.cargo/bin/uv` or `/Users/you/.asdf/shims/uv`).
+   Replace `YOUR_DOCKER_GID` with the number from step 1.
 
-6. **Restart Claude Desktop** to load the MCP server.
+   **Note:** The `--add-host` flag enables the MCP server (running in a container) to access web APIs hosted in sandbox containers via the host machine's port mappings.
+
+3. **Restart Claude Desktop**
+
+### After Installation
+
+1. Restart Claude Desktop
+2. Try asking Claude: *"Execute this C# code: Console.WriteLine(DateTime.Now);"*
+
+**Note:** First run will pull Docker images (~1GB total). This happens automatically when you first use the server.
+
+### Troubleshooting
+
+- **Docker must be running** - Start Docker Desktop before using Claude Desktop
+- If you see connection errors, ensure Docker Desktop is running
+- Check `~/Library/Application Support/Claude/claude_desktop_config.json` for configuration
+
+---
+
+## Development & Contributing
+
+**Status:** 🚧 Active development using strict TDD principles (unit tests → implementation → E2E validation). The server handles core workflows but API signatures may change.
+
+For contributors who want to modify the code or test unreleased features:
+
+### Requirements
+
+- Python 3.10+
+- Docker Desktop
+- uv (dependency manager)
+
+### Setup
+
+1. **Clone and install dependencies:**
+   ```bash
+   git clone https://github.com/domibies/dotbox-mcp.git
+   cd dotbox-mcp
+   uv sync
+   ```
+
+2. **Build Docker images:**
+   ```bash
+   cd docker
+   ./build-images.sh
+   ```
+
+### Running in Claude Desktop (Development Mode)
+
+Use the toggle script to switch between development modes:
+
+**Option 1: Development with uv (recommended for code changes)**
+```bash
+# Configure Claude Desktop to run from source with uv
+python3 scripts/toggle-claude-config.py dev
+
+# Restart Claude Desktop
+```
+
+This mode:
+- Runs server from source via uv
+- Hot-reloads on code changes
+- Uses local Docker images
+- Best for TDD workflow
+
+**Option 2: Development with Docker (test containerized setup)**
+```bash
+# Build all images (sandbox + server)
+./scripts/build-docker-dev.sh
+
+# Configure Claude Desktop to run in Docker
+python3 scripts/toggle-claude-config.py docker
+
+# Restart Claude Desktop
+```
+
+This mode:
+- Runs server in container (closer to production)
+- Tests Docker-in-Docker setup
+- Uses local images tagged `:dev`
+- Best for testing deployment issues
+
+**Switch back to production:**
+```bash
+python3 scripts/toggle-claude-config.py production
+```
+
+All toggle operations preserve other MCP servers in your config.
+
+### Testing
+
+```bash
+# Unit tests (fast, mocked Docker)
+uv run pytest -v -m "not e2e"
+
+# E2E tests (requires Docker running, pulls images as needed)
+uv run pytest -v -m e2e
+
+# With coverage
+uv run pytest --cov=src --cov-report=term-missing -m "not e2e"
+```
+
+### Git Workflow
+
+**Always work on feature branches:**
+```bash
+git checkout -b feature/your-feature
+# Make changes, commit, push
+git push -u origin feature/your-feature
+# Create PR via GitHub
+```
+
+Never push directly to main - all changes go through PRs with CI validation.
 
 ## License
 
