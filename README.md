@@ -86,6 +86,31 @@ If you prefer to install manually:
 - If you see connection errors, ensure Docker Desktop is running
 - Check `~/Library/Application Support/Claude/claude_desktop_config.json` for configuration
 
+## Example Prompts
+
+```
+Generate 10 fake Person records in C# using the Bogus library and run it to show me the output.
+```
+
+```
+Create a simple .NET 8 URL shortener API with in-memory storage. Include:
+  - POST /api/shorten (takes long URL, returns short code)
+  - GET /{shortCode} (redirects to original URL)
+  - GET /api/stats/{shortCode} (shows click count)
+```
+
+```
+Write and execute C# code using LINQ to group products by category and calculate average prices. Show me the actual results.
+```
+
+```
+Parse this JSON in C#: [{"name":"Alice","age":28},{"name":"Bob","age":22},{"name":"Carol","age":35}]. Filter users over 25 and run it to show the names.
+```
+
+```
+Generate 5 random pronounceable passwords in C# by combining syllables. Execute it and show me the passwords.
+```
+
 ---
 
 ## Development & Contributing
