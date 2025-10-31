@@ -88,8 +88,11 @@ If you prefer to install manually:
 
 ## Example Prompts
 
+**Note:** Request output display explicitly when you want to see formatted results.
+
 ```
-Generate 10 fake Person records in C# using the Bogus library and run it to show me the output.
+Generate 10 fake Person records in C# using the Bogus library and run it.
+Display the JSON output in an artifact so I can see it properly formatted.
 ```
 
 ```
@@ -97,25 +100,24 @@ Create a simple .NET 8 URL shortener API with in-memory storage. Include:
   - POST /api/shorten (takes long URL, returns short code)
   - GET /{shortCode} (redirects to original URL)
   - GET /api/stats/{shortCode} (shows click count)
+Start it and give me the URLs to test.
 ```
 
 ```
-Write and execute C# code using LINQ to group products by category and calculate average prices. Show me the actual results.
+Write and execute C# code using LINQ to group products by category and calculate average prices.
+Show me the results in an artifact.
 ```
 
 ```
-Parse this JSON in C#: [{"name":"Alice","age":28},{"name":"Bob","age":22},{"name":"Carol","age":35}]. Filter users over 25 and run it to show the names.
-```
-
-```
-Generate 5 random pronounceable passwords in C# by combining syllables. Execute it and show me the passwords.
+Generate 10 random pronounceable passwords of length 12 in C#.
+Execute it and show me the output. Explain how you did it and show the code in an artifact.
 ```
 
 ---
 
 ## Development & Contributing
 
-**Status:** 🚧 Active development using strict TDD principles (unit tests → implementation → E2E validation). The server handles core workflows but API signatures may change.
+**Status:** 🚧 Still a work in progress. The server handles core workflows but tool signatures may change.
 
 For contributors who want to modify the code or test unreleased features:
 

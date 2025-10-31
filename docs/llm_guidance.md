@@ -79,69 +79,42 @@ Creating subscription service...
 
 ## Artifact Creation Workflows
 
-### For Code Files (.cs, .csproj, etc.)
+> **Note:** Artifact creation is entirely user-controlled. This MCP server does not automatically suggest or require artifact creation. The guidance below represents recommended patterns that users can choose to implement via their Claude Desktop system prompts.
 
-**Recommended workflow when writing .NET code:**
+### User-Controlled Artifact Behavior
 
-1. **FIRST** create an artifact to display the code with syntax highlighting
-2. **THEN** call `dotnet_write_file` to write that code to the container
+If you want the LLM to automatically create artifacts for formatted output, add instructions to your Claude Desktop system prompt:
+
+**Example prompt addition:**
+```
+When executing C# code that produces formatted output (JSON, HTML, ASCII art, tables),
+create an artifact to display the output with proper formatting.
+```
+
+### Recommended Artifact Patterns (User-Configurable)
+
+**For Code Files (.cs, .csproj, etc.):**
+
+Users may configure their LLM to:
+1. Create an artifact to display code with syntax highlighting
+2. Then call `dotnet_write_file` to write that code to the container
 3. Confirm the file was written successfully
 
-This creates a better visual experience for users to review code before writing.
+**For Snippet Execution:**
 
-**Exception:** For simple config files or one-liners, skip the artifact.
-
-### For Snippet Execution
-
-**Recommended workflow for `dotnet_execute_snippet`:**
-
-1. **FIRST** create a C# code artifact to display the code cleanly
-2. **THEN** call `dotnet_execute_snippet` to execute that code
+Users may configure their LLM to:
+1. Create a C# code artifact to display the code cleanly
+2. Then call `dotnet_execute_snippet` to execute that code
 3. Show the execution results
-4. **IF output is formatted** (see next section), create artifact with output
+4. If output is formatted (JSON, HTML, tables), create artifact with output
 
-**Exception:** For very simple one-liners like `Console.WriteLine("Hello");`, execute directly.
+**For Formatted Output:**
 
----
-
-## Output Visualization Requirements
-
-### When to Create Output Artifacts
-
-**CRITICAL:** When executing code that produces visual output (ASCII art, JSON, tables, HTML, formatted text), you **MUST** create an artifact immediately after showing execution results. This is NOT optional.
-
-### Two-Step Pattern (Required for Formatted Output)
-
-**Step 1:** Execute code with `dotnet_execute_snippet`
-**Step 2:** Create artifact with the output
-
-### Examples
-
-**User: "Generate a JSON with user data"**
-
-1. Execute code with `dotnet_execute_snippet`
-2. Show execution succeeded
-3. **IMMEDIATELY create artifact** with `type="application/json"` containing the JSON output
-
-**User: "Create ASCII art of a cat"**
-
-1. Execute code with `dotnet_execute_snippet`
-2. Show execution succeeded
-3. **IMMEDIATELY create artifact** with `type="text/plain"` containing the ASCII art
-
-### Output Checklist (Process After EVERY Execution)
-
-After calling `dotnet_execute_snippet`:
-
-- [ ] Did it produce output?
-- [ ] Is the output more than a simple one-liner (e.g., "42", "Hello")?
-- [ ] If YES to both: **CREATE ARTIFACT NOW** with appropriate type:
-  - JSON → `type="application/json"`
-  - Text/ASCII art/tables → `type="text/plain"`
-  - HTML/SVG → `type="text/html"`
-  - CSV/XML → `type="text/plain"` with appropriate title
-
-**Consequence:** Failure to create artifacts for formatted output results in poor user experience where users cannot see properly formatted output.
+Users may configure their LLM to create output artifacts for:
+- JSON → `type="application/json"`
+- Text/ASCII art/tables → `type="text/plain"`
+- HTML/SVG → `type="text/html"`
+- CSV/XML → `type="text/plain"` with appropriate title
 
 ---
 
