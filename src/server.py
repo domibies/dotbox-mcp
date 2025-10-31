@@ -82,11 +82,12 @@ Container is automatically cleaned up after execution.
 - Comparing behavior across .NET 8, 9, and 10 RC2
 
 **When NOT to use:**
-- Multi-file projects (use dotnet_start_container + dotnet_write_file workflow)
-- Web servers/APIs (use project workflow with dotnet_run_background)
-- Persistent containers (use dotnet_start_container)
+- Multi-file projects (use dotbox-mcp:dotnet_start_container + dotbox-mcp:dotnet_write_file workflow)
+- Web servers/APIs (use project workflow with dotbox-mcp:dotnet_run_background)
+- Persistent containers (use dotbox-mcp:dotnet_start_container)
 
 **Note:** Show code snippets inline to users before tool calls (UI collapses tool output).
+**Note:** When presenting results, summarize output relevant to the user's question.
 
 **Features:**
 - Supports .NET 8, 9, 10 RC2
@@ -128,7 +129,7 @@ Creates and starts a long-running container for multi-step operations. Files liv
 - Preserving state between operations
 
 **When NOT to use:**
-- One-shot code execution (use dotnet_execute_snippet)
+- One-shot code execution (use dotbox-mcp:dotnet_execute_snippet)
 - Quick code testing without project structure
 
 **Note:** Inform users when starting containers (e.g., "Starting .NET 9 container...").
@@ -139,18 +140,18 @@ Creates and starts a long-running container for multi-step operations. Files liv
 
 **Container capabilities:**
 - Includes git, jq, sqlite3, tree for advanced workflows
-- Use dotnet_execute_command() to run these tools
+- Use dotbox-mcp:dotnet_execute_command() to run these tools
 
 **Port mapping (optional):**
 - Format: `{"container_port": host_port}` (e.g., `{"5000": 8080}`)
 - Container port: Where your .NET app listens inside container
 - Host port: Where you access it on localhost (use 0 for auto-assign)
 - App must explicitly listen on container port (configure in appsettings.json or --urls flag)
-- Use dotnet_list_containers() to see actual assigned ports
+- Use dotbox-mcp:dotnet_list_containers() to see actual assigned ports
 
 **Container lifecycle:**
 - Auto-cleanup after 30 minutes idle
-- Use dotnet_stop_container to manually stop
+- Use dotbox-mcp:dotnet_stop_container to manually stop
 - Idempotent: Returns existing container if called with same project_id
 
 **Common workflows:**
@@ -212,9 +213,11 @@ Create or update files in a running container for project development.
 - Non-standard project scenarios
 - Educational examples
 
+**File editing:** This is the ONLY way to edit files - tools like str_replace are not available. Write the complete new file content.
+
 **When NOT to use:**
-- One-shot code execution (use dotnet_execute_snippet)
-- Standard project creation (prefer `dotnet new` via dotnet_execute_command)
+- One-shot code execution (use dotbox-mcp:dotnet_execute_snippet)
+- Standard project creation (prefer `dotnet new` via dotbox-mcp:dotnet_execute_command)
 - When container doesn't exist (start container first)
 
 **Note:** Show code snippets inline before tool calls (UI collapses tool output).
@@ -307,7 +310,7 @@ Run .NET CLI commands, shell commands, or container utilities in a running conta
 - Debugging with shell commands
 
 **When NOT to use:**
-- One-shot code execution (use dotnet_execute_snippet)
+- One-shot code execution (use dotbox-mcp:dotnet_execute_snippet)
 - When container doesn't exist
 - For file read/write operations (use dedicated tools)
 
@@ -323,12 +326,14 @@ Run .NET CLI commands, shell commands, or container utilities in a running conta
 
 **Port access note:**
 - Commands run INSIDE container → use CONTAINER port (e.g., 5000)
-- dotnet_test_endpoint runs OUTSIDE → use HOST port (e.g., 8080)
+- dotbox-mcp:dotnet_test_endpoint runs OUTSIDE → use HOST port (e.g., 8080)
 
 **Timeout:**
 - Default: 30 seconds
 - Range: 1-300 seconds
 - Adjust for long builds
+
+**Note:** When presenting results, summarize output relevant to the user's question.
 
 **Returns:**
 - stdout, stderr, exit_code (0 = success)
@@ -352,23 +357,26 @@ Start processes like web APIs that need to keep running while you perform other 
 - Running background services
 - Any continuously running process
 
-**When NOT to use:**
-- Short-lived commands (use dotnet_execute_command)
-- One-shot code execution (use dotnet_execute_snippet)
+**After starting, always provide:**
+- Base API URL (e.g., http://localhost:8080)
+- Swagger UI URL if available (e.g., http://localhost:8080/swagger)
+- Format each URL on its own line for clickability
 
-**Note:** Format URLs on separate lines for clickability in terminals after starting APIs.
+**When NOT to use:**
+- Short-lived commands (use dotbox-mcp:dotnet_execute_command)
+- One-shot code execution (use dotbox-mcp:dotnet_execute_snippet)
 
 **Background execution:**
 - Process runs in background using nohup
 - Tool returns immediately after wait_for_ready period (default 5s)
-- Use dotnet_get_logs to check process output
+- Use dotbox-mcp:dotnet_get_logs to check process output
 
 **Common workflow:**
 1. Start container with ports
 2. Create project and configure listening port
 3. Run in background
-4. Test endpoint with dotnet_test_endpoint
-5. Check dotnet_get_logs if needed
+4. Test endpoint with dotbox-mcp:dotnet_test_endpoint
+5. Check dotbox-mcp:dotnet_get_logs if needed
 
 **Returns:** Success message with process confirmation
             """,
@@ -392,9 +400,11 @@ Make HTTP requests to test web APIs and endpoints from the host machine.
 - Testing different HTTP methods
 - Checking API responses
 
+**Present results concisely** - summarize status and key response data, don't dump full HTTP details unless debugging.
+
 **When NOT to use:**
-- Executing C# code (use dotnet_execute_snippet)
-- Checking if process is running (use dotnet_get_logs)
+- Executing C# code (use dotbox-mcp:dotnet_execute_snippet)
+- Checking if process is running (use dotbox-mcp:dotnet_get_logs)
 
 **Features:**
 - Supports GET, POST, PUT, DELETE, PATCH
@@ -403,7 +413,7 @@ Make HTTP requests to test web APIs and endpoints from the host machine.
 
 **URL handling:**
 - Use localhost with HOST port (e.g., `http://localhost:8080/health`)
-- Port matches HOST port from dotnet_start_container, not container port
+- Port matches HOST port from dotbox-mcp:dotnet_start_container, not container port
 
 **Returns:** HTTP status code, headers, and response body
             """,
@@ -427,14 +437,16 @@ Get stdout/stderr logs from container to debug processes and see output.
 - Troubleshooting errors
 
 **When NOT to use:**
-- Reading file contents (use dotnet_read_file)
-- Short-lived command output (use dotnet_execute_command)
+- Reading file contents (use dotbox-mcp:dotnet_read_file)
+- Short-lived command output (use dotbox-mcp:dotnet_execute_command)
 
 **Log sources:** All stdout/stderr, dotnet run output, application logs, errors
 
 **Parameters:**
 - tail: Lines from end (default 50, max 1000)
 - since: Last N seconds (optional)
+
+**Note:** When presenting results, summarize output relevant to the user's question.
 
 **Returns:** Container logs as text
             """,
@@ -457,7 +469,7 @@ Stop long-running background processes (like web servers) without stopping the c
 - Iterative development: run → test → kill → modify → run
 - Kill stuck processes
 
-**Why not dotnet_stop_container:**
+**Why not dotbox-mcp:dotnet_stop_container:**
 - Keeps container and files intact
 - Faster than recreating
 - Preserves state
@@ -609,7 +621,6 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
                 metadata={
                     "container_id": result.get("container_id", ""),
                 },
-                output=output,  # Pass output for artifact detection
             )
 
         else:

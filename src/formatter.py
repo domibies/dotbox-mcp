@@ -177,95 +177,12 @@ class OutputFormatter:
 
         result = "\n".join(sections)
 
-        # Add artifact reminder guardrail for success cases with formatted output
-        if status == "success" and output:
-            needs_artifact = self._should_suggest_artifact(output)
-            if needs_artifact:
-                artifact_type = self._detect_output_type(output)
-                result += f"\n\n{'-' * 60}"
-                result += "\n[!] REMINDER: Create an artifact to display this output properly!"
-                result += f"\n    Type: {artifact_type}"
-                result += "\n    This ensures proper formatting and user experience."
-                result += f"\n{'-' * 60}"
-
         # Enforce character limit
         if len(result) > self.CHARACTER_LIMIT:
             result = self._truncate_to_char_limit(result, self.CHARACTER_LIMIT)
 
         return result
 
-    def _should_suggest_artifact(self, output: str) -> bool:
-        """Determine if output should be displayed in an artifact.
-
-        Args:
-            output: The execution output
-
-        Returns:
-            True if artifact is recommended
-        """
-        if not output or not output.strip():
-            return False
-
-        output_stripped = output.strip()
-
-        # Detect structured formats FIRST (before length check)
-        # JSON
-        if (output_stripped.startswith('{') or output_stripped.startswith('[')) and \
-           (output_stripped.endswith('}') or output_stripped.endswith(']')):
-            return True
-
-        # HTML/SVG
-        if output_stripped.startswith('<html') or output_stripped.startswith('<!DOCTYPE') or \
-           output_stripped.startswith('<svg'):
-            return True
-
-        # XML
-        if output_stripped.startswith('<?xml') or (output_stripped.startswith('<') and '>' in output_stripped):
-            return True
-
-        # Table indicators
-        if any(indicator in output_stripped for indicator in ['|', '─', '═', '┌', '└']):
-            return True
-
-        # Multiple lines - needs artifact
-        lines = output_stripped.split('\n')
-        if len(lines) > 3:
-            return True
-
-        # Single short line - no artifact needed
-        if len(lines) == 1 and len(lines[0]) < 50:
-            return False
-
-        return False
-
-    def _detect_output_type(self, output: str) -> str:
-        """Detect the appropriate artifact type for output.
-
-        Args:
-            output: The execution output
-
-        Returns:
-            Suggested artifact type
-        """
-        output_stripped = output.strip()
-
-        # JSON
-        if (output_stripped.startswith('{') or output_stripped.startswith('[')) and \
-           (output_stripped.endswith('}') or output_stripped.endswith(']')):
-            return "application/json"
-
-        # HTML/SVG
-        if output_stripped.startswith('<html') or output_stripped.startswith('<!DOCTYPE'):
-            return "text/html"
-        if output_stripped.startswith('<svg'):
-            return "text/html (for SVG rendering)"
-
-        # XML
-        if output_stripped.startswith('<?xml') or output_stripped.startswith('<'):
-            return "text/plain with XML highlighting"
-
-        # Default to text
-        return "text/plain"
 
     def format_json_response(
         self,
@@ -273,16 +190,14 @@ class OutputFormatter:
         data: dict[str, Any] | None = None,
         error: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
-        output: str = "",
     ) -> str:
-        """Format response as JSON string with artifact instructions.
+        """Format response as JSON string.
 
         Args:
             status: Response status ("success" or "error")
             data: Response data (for success)
             error: Error details (for error)
             metadata: Optional metadata
-            output: Output string to check for artifact requirement (for success cases)
 
         Returns:
             JSON string
@@ -297,17 +212,6 @@ class OutputFormatter:
 
         if metadata is not None:
             response["metadata"] = metadata
-
-        # Add artifact instruction for success cases with formatted output
-        if status == "success" and output:
-            needs_artifact = self._should_suggest_artifact(output)
-            if needs_artifact:
-                artifact_type = self._detect_output_type(output)
-                response["artifact_instruction"] = {
-                    "required": True,
-                    "type": artifact_type,
-                    "message": "⚠️ CREATE ARTIFACT NOW - This output requires proper formatting",
-                }
 
         return json.dumps(response, indent=2)
 

@@ -63,6 +63,10 @@ The server is designed around **agent-centric workflows** rather than low-level 
    - Mock external dependencies (Docker, HTTP calls)
    - Test both success and failure paths
 
+6. **macOS Path Handling**:
+   - Claude Desktop config: `~/Library/Application\ Support/Claude/claude_desktop_config.json`
+   - Always escape spaces with backslashes in bash commands
+
 ### Core Workflows
 
 1. **Quick Snippet Testing**: Execute C# code without project setup
