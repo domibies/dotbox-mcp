@@ -22,6 +22,7 @@ from src.models import (
     ListContainersInput,
     ListFilesInput,
     ReadFileInput,
+    ResponseFormat,
     RunBackgroundInput,
     StartContainerInput,
     StopContainerInput,
@@ -609,47 +610,78 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
             timeout=30,
         )
 
-        # Format response as structured JSON
+        # Format response based on requested format
         if result["success"]:
             # Success case
-            output = result["stdout"] if result["stdout"] else result["stderr"]
-
-            response = fmt.format_json_response(
-                status="success",
-                data={
-                    "output": output,
-                    "exit_code": result["exit_code"],
-                    "dotnet_version": input_data.dotnet_version.value,
-                    "code": input_data.code,
-                },
-                metadata={
-                    "container_id": result.get("container_id", ""),
-                },
-            )
+            if input_data.response_format == ResponseFormat.MARKDOWN:
+                response = fmt.format_execution_result_markdown(
+                    status="success",
+                    stdout=result["stdout"],
+                    stderr=result["stderr"],
+                    exit_code=result["exit_code"],
+                    dotnet_version=input_data.dotnet_version.value,
+                    execution_time_ms=result.get("execution_time_ms", 0),
+                    detail_level=input_data.detail_level,
+                )
+            else:  # JSON format
+                output = result["stdout"] if result["stdout"] else result["stderr"]
+                response = fmt.format_json_response(
+                    status="success",
+                    data={
+                        "output": output,
+                        "exit_code": result["exit_code"],
+                        "dotnet_version": input_data.dotnet_version.value,
+                        "code": input_data.code,
+                    },
+                    metadata={
+                        "container_id": result.get("container_id", ""),
+                    },
+                )
 
         else:
             # Build or execution error
-            error_output = fmt.format_execution_output(
-                stdout=result["stdout"],
-                stderr=result["stderr"],
-                exit_code=result["exit_code"],
-                detail_level=DetailLevel.FULL,  # Always show full errors
-            )
+            if input_data.response_format == ResponseFormat.MARKDOWN:
+                # Format build errors in Markdown
+                if result["build_errors"]:
+                    response = fmt.format_build_error_markdown(
+                        errors=result["build_errors"],
+                        suggestions=result.get("suggestions", []),
+                        dotnet_version=input_data.dotnet_version.value,
+                        execution_time_ms=result.get("execution_time_ms", 0),
+                    )
+                else:
+                    # Runtime execution error
+                    response = fmt.format_execution_result_markdown(
+                        status="error",
+                        stdout=result["stdout"],
+                        stderr=result["stderr"],
+                        exit_code=result["exit_code"],
+                        dotnet_version=input_data.dotnet_version.value,
+                        execution_time_ms=result.get("execution_time_ms", 0),
+                        detail_level=input_data.detail_level,
+                    )
+            else:  # JSON format
+                error_output = fmt.format_execution_output(
+                    stdout=result["stdout"],
+                    stderr=result["stderr"],
+                    exit_code=result["exit_code"],
+                    detail_level=DetailLevel.FULL,  # Always show full errors
+                )
 
-            response = fmt.format_json_response(
-                status="error",
-                error={
-                    "type": "BuildError" if result["build_errors"] else "ExecutionError",
-                    "message": "Build failed" if result["build_errors"] else "Code execution failed",
-                    "details": error_output,
-                    "build_errors": result["build_errors"] if result["build_errors"] else [],
-                },
-                data={
-                    "code": input_data.code,
-                    "exit_code": result["exit_code"],
-                    "dotnet_version": input_data.dotnet_version.value,
-                },
-            )
+                response = fmt.format_json_response(
+                    status="error",
+                    error={
+                        "type": "BuildError" if result["build_errors"] else "ExecutionError",
+                        "message": "Build failed" if result["build_errors"] else "Code execution failed",
+                        "details": error_output,
+                        "build_errors": result["build_errors"] if result["build_errors"] else [],
+                    },
+                    data={
+                        "code": input_data.code,
+                        "exit_code": result["exit_code"],
+                        "dotnet_version": input_data.dotnet_version.value,
+                    },
+                )
 
         return [TextContent(type="text", text=response)]
 
@@ -1318,8 +1350,19 @@ async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
 
         response_time_ms = int((time.time() - start_time) * 1000)
 
-        # Format response
-        output = f"""HTTP {input_data.method} {input_data.url}
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            result = fmt.format_endpoint_response_markdown(
+                method=input_data.method,
+                url=input_data.url,
+                status_code=response.status_code,
+                response_body=response.text,
+                response_headers=dict(response.headers),
+                response_time_ms=response_time_ms,
+                detail_level=input_data.detail_level,
+            )
+        else:  # JSON format
+            output = f"""HTTP {input_data.method} {input_data.url}
 Status: {response.status_code} {response.reason_phrase}
 Response Time: {response_time_ms}ms
 
@@ -1329,10 +1372,10 @@ Headers:
 Body:
 {response.text}"""
 
-        result = fmt.format_human_readable_response(
-            status="success" if 200 <= response.status_code < 400 else "error",
-            output=output,
-        )
+            result = fmt.format_human_readable_response(
+                status="success" if 200 <= response.status_code < 400 else "error",
+                output=output,
+            )
 
         return [TextContent(type="text", text=result)]
 
@@ -1415,16 +1458,25 @@ async def get_logs(arguments: dict[str, Any]) -> list[TextContent]:
             since=input_data.since,
         )
 
-        if not logs:
-            output = "No logs available (container may have just started)"
-        else:
-            output = f"Container logs (last {input_data.tail} lines):\n\n{logs}"
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            response = fmt.format_logs_markdown(
+                project_id=input_data.project_id,
+                logs=logs,
+                tail=input_data.tail,
+                detail_level=input_data.detail_level,
+            )
+        else:  # JSON format
+            if not logs:
+                output = "No logs available (container may have just started)"
+            else:
+                output = f"Container logs (last {input_data.tail} lines):\n\n{logs}"
 
-        response = fmt.format_human_readable_response(
-            status="success",
-            output=output,
-            project_id=input_data.project_id,
-        )
+            response = fmt.format_human_readable_response(
+                status="success",
+                output=output,
+                project_id=input_data.project_id,
+            )
 
         return [TextContent(type="text", text=response)]
 
