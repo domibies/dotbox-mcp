@@ -124,30 +124,143 @@ async def dotnet_execute_snippet(input: ExecuteSnippetInput) -> str:
     # Returns JSON string with standardized format
 ```
 
-### Standardized Response Format
+### Dual-Format Response Support
 
-```python
-# Success
-{
-    "status": "success",
-    "data": {...},
-    "metadata": {
-        "execution_time_ms": 1234,
-        "container_id": "...",
-        "dotnet_version": "8.0.0"
-    }
-}
+All MCP tools support two response formats via the `response_format` parameter:
 
-# Error
+**Markdown (Default)** - Human-readable, context-efficient format optimized for LLM consumption
+**JSON** - Structured data format for backward compatibility and programmatic processing
+
+#### Markdown Format (Default, Recommended)
+
+**Why Markdown?**
+- 30-50% more context-efficient than JSON
+- Immediate visual clarity (✓/✗ symbols)
+- Better readability in Claude Desktop
+- Aligns with MCP best practices for limited context optimization
+
+**Example Success:**
+```markdown
+# Execution Result ✓
+
+**Runtime:** .NET 8.0.0 (1.2s)
+
+## Output
+```
+Hello, World!
+The answer is 42
+```
+
+---
+*C# code executed successfully*
+```
+
+**Example Error:**
+```markdown
+# Build Failed ✗
+
+**Runtime:** .NET 8.0.0 (0.5s)
+
+## Errors
+
+**error CS0103** (Line 5, Col 13)
+The name 'invalidVariable' does not exist in the current context
+
+## Suggestions
+- Check variable names for typos
+- Add required using directives (e.g., `using System;`)
+- Verify all packages are added with correct versions
+```
+
+**Example HTTP Test:**
+```markdown
+# GET /api/users → 200 OK ✓
+
+**Response Time:** 145ms
+
+## Response
+```json
 {
-    "status": "error",
-    "error": {
-        "type": "BuildError",
-        "message": "...",
-        "suggestions": ["...", "..."]
-    }
+  "users": [{"id": 1, "name": "John"}],
+  "total": 2
 }
 ```
+```
+
+#### JSON Format (Backward Compatible)
+
+**When to use JSON:**
+- When LLM needs to process data programmatically
+- For backward compatibility with existing integrations
+- When exact field structure matters (e.g., automated testing)
+
+**Example:**
+```json
+{
+  "status": "success",
+  "data": {
+    "stdout": "Hello, World!",
+    "stderr": "",
+    "exit_code": 0
+  },
+  "metadata": {
+    "execution_time_ms": 1234,
+    "dotnet_version": "8.0.0"
+  }
+}
+```
+
+#### Using Response Formats
+
+All tools accept a `response_format` parameter (default: `"markdown"`):
+
+```python
+# Use default Markdown format (recommended)
+{
+  "code": "Console.WriteLine(\"Hello\");",
+  "dotnet_version": "8"
+}
+
+# Explicitly request Markdown
+{
+  "code": "Console.WriteLine(\"Hello\");",
+  "response_format": "markdown"
+}
+
+# Request JSON format
+{
+  "code": "Console.WriteLine(\"Hello\");",
+  "response_format": "json"
+}
+```
+
+#### DetailLevel Integration
+
+Both formats support `detail_level` parameter where applicable:
+- `"concise"` (default): First 50 lines of output
+- `"full"`: Complete output
+
+```python
+{
+  "code": "...",
+  "detail_level": "full",
+  "response_format": "markdown"
+}
+```
+
+#### Tools with Enhanced Markdown Support
+
+The following tools have optimized Markdown formatting:
+- `dotnet_execute_snippet` - Execution results with syntax highlighting
+- `dotnet_test_endpoint` - HTTP responses with status indicators
+- `dotnet_get_logs` - Container logs with metadata
+- `dotnet_run_background` - Background process status
+- `dotnet_start_container` - Container info with clickable URLs
+
+Other tools use a compatible human-readable format that works well with both modes.
+
+**Note on Emojis:**
+Tool outputs may include status emojis (✓/✗) for visual clarity in Markdown format. This is different from conversational responses, which should avoid emojis unless explicitly requested by the user.
 
 ## Security & Resource Management
 
