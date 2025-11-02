@@ -4,6 +4,28 @@ A Model Context Protocol (MCP) server that enables LLMs to execute .NET workload
 
 Built with FastMCP (Python) and Docker SDK.
 
+## What is dotbox-mcp?
+
+**dotbox-mcp is a specialized tool for rapid .NET experimentation and prototyping** - not a replacement for full-fledged coding agents like Claude Code or Cursor.
+
+**Use dotbox-mcp when you want to:**
+- Quickly test a .NET feature or API
+- Prototype a small Minimal API or console app
+- Compare behavior across .NET versions (8, 9, 10)
+- Execute snippets without setting up a local environment
+- Experiment with NuGet packages in isolation
+
+**Use Claude Code when you need:**
+- Full codebase navigation and editing
+- Multi-file projects with git integration
+- Comprehensive testing and debugging
+- Production-ready application development
+
+**Security through isolation:** All .NET code runs in ephemeral Docker containers with resource limits, read-only filesystems (except `/workspace`), and automatic cleanup. Containers are destroyed after use, ensuring no persistent state or security risks.
+
+![API Key Management Example](images/Built%20a%20Minimal%20API%20for%20API%20Key%20Mgmt.png)
+*Example: Claude building a complete API Key Management service with CRUD endpoints, in-memory storage, and key validation - from prompt to running API in seconds.*
+
 ## Features
 
 This MCP server is designed around **agent-centric workflows** - providing complete end-to-end tools rather than low-level Docker commands:
