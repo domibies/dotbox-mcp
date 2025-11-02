@@ -17,7 +17,9 @@ class TestDockerContainerManager:
         return MagicMock()
 
     @pytest.fixture
-    def manager(self, mock_docker_client: MagicMock, monkeypatch: pytest.MonkeyPatch) -> DockerContainerManager:
+    def manager(
+        self, mock_docker_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> DockerContainerManager:
         """Create DockerContainerManager with mocked client."""
         # Set local registry mode for tests
         monkeypatch.setenv("DOTBOX_SANDBOX_REGISTRY", "local")

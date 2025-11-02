@@ -22,9 +22,7 @@ class DotNetExecutor:
         self.docker_manager = docker_manager
         self._version_cache: dict[str, str | None] = {}
 
-    async def generate_csproj(
-        self, dotnet_version: DotNetVersion, packages: list[str]
-    ) -> str:
+    async def generate_csproj(self, dotnet_version: DotNetVersion, packages: list[str]) -> str:
         """Generate .csproj file content.
 
         Args:
@@ -55,11 +53,7 @@ class DotNetExecutor:
 
         package_section = "\n".join(package_refs) if package_refs else ""
 
-        itemgroup = (
-            f"  <ItemGroup>\n{package_section}\n  </ItemGroup>\n"
-            if package_section
-            else ""
-        )
+        itemgroup = f"  <ItemGroup>\n{package_section}\n  </ItemGroup>\n" if package_section else ""
 
         return f"""<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>

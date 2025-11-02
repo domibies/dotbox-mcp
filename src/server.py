@@ -62,6 +62,48 @@ def _initialize_components() -> tuple[DockerContainerManager, DotNetExecutor, Ou
     return docker_manager, executor, formatter
 
 
+def _get_response_format(arguments: dict[str, Any]) -> ResponseFormat:
+    """Extract response_format from arguments, defaulting to MARKDOWN."""
+    format_str = arguments.get("response_format", "markdown")
+    try:
+        return ResponseFormat(format_str)
+    except ValueError:
+        return ResponseFormat.MARKDOWN
+
+
+def _format_error_response(
+    error_message: str,
+    error_details: str,
+    suggestions: list[str] | None = None,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> str:
+    """Format an error response in the requested format."""
+    fmt = OutputFormatter()
+
+    if response_format == ResponseFormat.MARKDOWN:
+        response = f"# Error ✗\n\n**{error_message}**\n\n"
+        if error_details:
+            response += f"## Details\n\n```\n{error_details}\n```\n\n"
+        if suggestions:
+            response += "## Suggestions\n\n"
+            for suggestion in suggestions:
+                response += f"- {suggestion}\n"
+        return response
+    else:  # JSON format
+        error_dict: dict[str, Any] = {
+            "type": "Error",
+            "message": error_message,
+            "details": error_details,
+        }
+        if suggestions:
+            error_dict["suggestions"] = suggestions
+
+        return fmt.format_json_response(
+            status="error",
+            error=error_dict,
+        )
+
+
 @server.list_tools()  # type: ignore[misc, no-untyped-call]
 async def list_tools() -> list[Tool]:
     """List available MCP tools."""
@@ -565,6 +607,7 @@ def _running_in_container() -> bool:
         True if running in container, False otherwise
     """
     import os
+
     return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
 
 
@@ -672,7 +715,9 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
                     status="error",
                     error={
                         "type": "BuildError" if result["build_errors"] else "ExecutionError",
-                        "message": "Build failed" if result["build_errors"] else "Code execution failed",
+                        "message": "Build failed"
+                        if result["build_errors"]
+                        else "Code execution failed",
                         "details": error_output,
                         "build_errors": result["build_errors"] if result["build_errors"] else [],
                     },
@@ -687,42 +732,36 @@ async def execute_snippet(arguments: dict[str, Any]) -> list[TextContent]:
 
     except ValidationError as e:
         # Input validation error
-        error_response = OutputFormatter().format_json_response(
-            status="error",
-            error={
-                "type": "ValidationError",
-                "message": "Invalid input parameters",
-                "details": str(e),
-            },
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
+            error_message="Invalid input parameters",
+            error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
         # Docker not available
-        error_response = OutputFormatter().format_json_response(
-            status="error",
-            error={
-                "type": "DockerException",
-                "message": "Docker is not available",
-                "details": str(e),
-                "suggestions": [
-                    "Ensure Docker is installed and running",
-                    "Check Docker socket permissions",
-                    "Verify Docker images are built (run docker/build-images.sh)",
-                ],
-            },
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
+            error_message="Docker is not available",
+            error_details=str(e),
+            suggestions=[
+                "Ensure Docker is installed and running",
+                "Check Docker socket permissions",
+                "Verify Docker images are built (run docker/build-images.sh)",
+            ],
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
         # Unexpected error
-        error_response = OutputFormatter().format_json_response(
-            status="error",
-            error={
-                "type": "UnexpectedError",
-                "message": "An unexpected error occurred",
-                "details": str(e),
-            },
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
+            error_message="An unexpected error occurred",
+            error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -746,12 +785,42 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
         # Check if container already exists for this project (project_id is now guaranteed to exist after validation)
         existing_container = mgr.get_container_by_project_id(input_data.project_id)  # type: ignore[arg-type]
         if existing_container:
-            response = fmt.format_human_readable_response(
-                status="success",
-                output=f"Container already running for project '{input_data.project_id}'",
-                container_id=existing_container,
-                project_id=input_data.project_id,  # type: ignore[arg-type]
-            )
+            # Get port information
+            port_info = {}
+            containers = mgr.list_containers()
+            for container in containers:
+                if container.container_id == existing_container:
+                    port_info = container.ports
+                    break
+
+            # Format response based on requested format
+            if input_data.response_format == ResponseFormat.MARKDOWN:
+                # Build URLs if ports are mapped
+                urls = []
+                if port_info:
+                    for _container_port, host_port in port_info.items():
+                        urls.append(f"http://localhost:{host_port}")
+
+                response = fmt.format_container_info_markdown(
+                    project_id=input_data.project_id,  # type: ignore[arg-type]
+                    container_id=existing_container,
+                    dotnet_version=input_data.dotnet_version.value,
+                    ports=port_info if port_info else None,  # type: ignore[arg-type]
+                    urls=urls if urls else None,
+                    status="already_running",
+                )
+            else:
+                data: dict[str, Any] = {
+                    "container_id": existing_container,
+                    "project_id": input_data.project_id,
+                    "message": "Container already running",
+                }
+                if port_info:
+                    data["ports"] = port_info
+                response = fmt.format_json_response(
+                    status="success",
+                    data=data,
+                )
             return [TextContent(type="text", text=response)]
 
         # Create new container (no volume mounting - files live in container only)
@@ -776,44 +845,46 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
             # Build URLs if ports are mapped
             urls = []
             if port_info:
-                for container_port, host_port in port_info.items():
+                for _container_port, host_port in port_info.items():
                     urls.append(f"http://localhost:{host_port}")
 
             response = fmt.format_container_info_markdown(
                 project_id=input_data.project_id,  # type: ignore[arg-type]
                 container_id=container_id,
                 dotnet_version=input_data.dotnet_version.value,
-                ports=port_info if port_info else None,
+                ports=port_info if port_info else None,  # type: ignore[arg-type]
                 urls=urls if urls else None,
                 status="success",
             )
         else:  # JSON format
-            output_msg = f"Started container for project '{input_data.project_id}'"
+            response_data: dict[str, Any] = {
+                "container_id": container_id,
+                "project_id": input_data.project_id,
+                "dotnet_version": input_data.dotnet_version.value,
+            }
             if port_info:
-                port_list = [f"{container_port} → {host_port}" for container_port, host_port in port_info.items()]
-                output_msg += f"\nPorts: {', '.join(port_list)}"
+                response_data["ports"] = port_info
 
-            response = fmt.format_human_readable_response(
+            response = fmt.format_json_response(
                 status="success",
-                output=output_msg,
-                container_id=container_id,
-                project_id=input_data.project_id,  # type: ignore[arg-type]
-                dotnet_version=input_data.dotnet_version.value,
+                data=response_data,
             )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
         # Input validation error
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
         # Check if this is a port conflict error (must check before generic Docker error)
+        response_format = _get_response_format(arguments)
         error_msg = str(e).lower()
         is_port_conflict = any(
             phrase in error_msg
@@ -825,13 +896,12 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
             ]
         )
 
-        if is_port_conflict and input_data.ports:
+        if is_port_conflict and hasattr(input_data, "ports") and input_data.ports:
             # Port conflict - provide actionable suggestions to LLM
             # Build auto-assign example
-            auto_ports = ', '.join(f"'{cp}': 0" for cp in input_data.ports.keys())
+            auto_ports = ", ".join(f"'{cp}': 0" for cp in input_data.ports.keys())
 
-            error_response = OutputFormatter().format_human_readable_response(
-                status="error",
+            error_response = _format_error_response(
                 error_message="Port conflict: One or more requested ports are already in use",
                 error_details=str(e),
                 suggestions=[
@@ -840,11 +910,11 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
                     "Stop the conflicting container if no longer needed",
                     "Use different host ports that are not occupied",
                 ],
+                response_format=response_format,
             )
         else:
             # Generic Docker error (daemon not running, image not found, etc.)
-            error_response = OutputFormatter().format_human_readable_response(
-                status="error",
+            error_response = _format_error_response(
                 error_message="Docker error",
                 error_details=str(e),
                 suggestions=[
@@ -852,15 +922,17 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
                     "Check Docker socket permissions",
                     "Verify Docker images are built (run docker/build-images.sh)",
                 ],
+                response_format=response_format,
             )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
         # Other unexpected error
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to start container",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -885,49 +957,68 @@ async def stop_container(arguments: dict[str, Any]) -> list[TextContent]:
         container_id = mgr.get_container_by_project_id(input_data.project_id)
 
         if not container_id:
-            response = fmt.format_human_readable_response(
-                status="success",
-                output=f"No running container found for project '{input_data.project_id}'",
-                project_id=input_data.project_id,
-            )
+            if input_data.response_format == ResponseFormat.MARKDOWN:
+                response = f"# Container Status ✓\n\n**Project:** {input_data.project_id}\n\nNo running container found for this project."
+            else:
+                response = fmt.format_json_response(
+                    status="success",
+                    data={
+                        "project_id": input_data.project_id,
+                        "message": "No running container found",
+                    },
+                )
             return [TextContent(type="text", text=response)]
 
         # Stop the container
         mgr.stop_container(container_id)
 
-        response = fmt.format_human_readable_response(
-            status="success",
-            output=f"Stopped container for project '{input_data.project_id}'",
-            project_id=input_data.project_id,
-            container_id=container_id,
-        )
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            response = fmt.format_container_info_markdown(
+                project_id=input_data.project_id,
+                container_id=container_id,
+                status="success",
+                message="Container stopped and removed successfully.",
+            )
+        else:
+            response = fmt.format_json_response(
+                status="success",
+                data={
+                    "project_id": input_data.project_id,
+                    "container_id": container_id,
+                    "message": "Container stopped and removed",
+                },
+            )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
         # Input validation error
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
         # Docker not available
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker is not available",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
         # Unexpected error
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to stop container",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -966,36 +1057,46 @@ async def write_file(arguments: dict[str, Any]) -> list[TextContent]:
             content=input_data.content,
         )
 
-        response = fmt.format_human_readable_response(
-            status="success",
-            output=f"File written successfully to {input_data.path}",
-            project_id=input_data.project_id,
-            container_id=container_id,
-        )
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            response = f"# File Written ✓\n\n**Project:** {input_data.project_id}\n**Path:** `{input_data.path}`\n\nFile written successfully."
+        else:
+            response = fmt.format_json_response(
+                status="success",
+                data={
+                    "project_id": input_data.project_id,
+                    "container_id": container_id,
+                    "path": input_data.path,
+                    "message": "File written successfully",
+                },
+            )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker operation failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to write file",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1035,43 +1136,60 @@ async def read_file(arguments: dict[str, Any]) -> list[TextContent]:
             )
             content = content_bytes.decode("utf-8")
 
-            response = fmt.format_human_readable_response(
-                status="success",
-                output=content,
-                project_id=input_data.project_id,
-            )
+            # Format response based on requested format
+            if input_data.response_format == ResponseFormat.MARKDOWN:
+                # Determine language for syntax highlighting
+                lang = ""
+                if input_data.path.endswith(".cs"):
+                    lang = "csharp"
+                elif input_data.path.endswith(".json"):
+                    lang = "json"
+                elif input_data.path.endswith(".xml"):
+                    lang = "xml"
+
+                response = f"# File Content ✓\n\n**Project:** {input_data.project_id}\n**Path:** `{input_data.path}`\n\n```{lang}\n{content}\n```"
+            else:
+                response = fmt.format_human_readable_response(
+                    status="success",
+                    output=content,
+                    project_id=input_data.project_id,
+                )
 
             return [TextContent(type="text", text=response)]
 
         except FileNotFoundError:
-            error_response = fmt.format_human_readable_response(
-                status="error",
+            response_format = _get_response_format(arguments)
+            error_response = _format_error_response(
                 error_message=f"File not found: {input_data.path}",
                 error_details="Check the path and try again",
+                response_format=response_format,
             )
             return [TextContent(type="text", text=error_response)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker operation failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to read file",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1109,40 +1227,51 @@ async def list_files(arguments: dict[str, Any]) -> list[TextContent]:
             path=input_data.path,
         )
 
-        if not files:
-            output = f"Directory is empty or does not exist: {input_data.path}"
-        else:
-            output = f"Files in {input_data.path}:\n" + "\n".join(f"  {f}" for f in files)
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            if not files:
+                file_list = "*Directory is empty or does not exist*"
+            else:
+                file_list = "\n".join(f"- `{f}`" for f in files)
 
-        response = fmt.format_human_readable_response(
-            status="success",
-            output=output,
-            project_id=input_data.project_id,
-        )
+            response = f"# Directory Contents ✓\n\n**Project:** {input_data.project_id}\n**Path:** `{input_data.path}`\n\n{file_list}"
+        else:
+            response = fmt.format_json_response(
+                status="success",
+                data={
+                    "project_id": input_data.project_id,
+                    "path": input_data.path,
+                    "files": files,
+                    "count": len(files),
+                },
+            )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker operation failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to list files",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1181,63 +1310,86 @@ async def execute_command(arguments: dict[str, Any]) -> list[TextContent]:
             timeout=input_data.timeout,
         )
 
-        # Format output
-        output_lines = []
-        output_lines.append(f"Command: {' '.join(input_data.command)}")
-        output_lines.append(f"Exit code: {exit_code}")
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            symbol = "✓" if exit_code == 0 else "✗"
+            title = "Command Executed" if exit_code == 0 else "Command Failed"
 
-        if stdout:
-            output_lines.append(f"\nStdout:\n{stdout}")
+            sections = [f"# {title} {symbol}", ""]
+            sections.append(f"**Project:** {input_data.project_id}")
+            sections.append(f"**Command:** `{' '.join(input_data.command)}`")
+            sections.append(f"**Exit Code:** {exit_code}")
+            sections.append("")
 
-        if stderr:
-            output_lines.append(f"\nStderr:\n{stderr}")
+            if stdout:
+                sections.append("## Output")
+                sections.append("")
+                sections.append(f"```\n{stdout}\n```")
+                sections.append("")
 
-        output = "\n".join(output_lines)
+            if stderr:
+                sections.append("## Error Output")
+                sections.append("")
+                sections.append(f"```\n{stderr}\n```")
 
-        # CRITICAL: Pass output to error_details when command fails
-        # The formatter's error path doesn't display the 'output' parameter,
-        # so we must pass stdout/stderr via error_details to make them visible
-        if exit_code == 0:
-            # Success: use normal output parameter
-            response = fmt.format_human_readable_response(
-                status="success",
-                output=output,
-                project_id=input_data.project_id,
-                container_id=container_id,
-            )
+            response = "\n".join(sections)
         else:
-            # Failure: pass output to error_details so it's visible
-            response = fmt.format_human_readable_response(
-                status="error",
-                error_message=f"Command failed with exit code {exit_code}",
-                error_details=output,
-                project_id=input_data.project_id,
-                container_id=container_id,
-            )
+            # JSON format
+            data = {
+                "command": input_data.command,
+                "exit_code": exit_code,
+                "project_id": input_data.project_id,
+                "container_id": container_id,
+            }
+            if stdout:
+                data["stdout"] = stdout
+            if stderr:
+                data["stderr"] = stderr
+
+            if exit_code == 0:
+                response = fmt.format_json_response(
+                    status="success",
+                    data=data,
+                )
+            else:
+                response = fmt.format_json_response(
+                    status="error",
+                    error={
+                        "type": "CommandExecutionError",
+                        "message": f"Command failed with exit code {exit_code}",
+                        "exit_code": exit_code,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    },
+                    metadata={"project_id": input_data.project_id, "container_id": container_id},
+                )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker operation failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to execute command",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1284,6 +1436,7 @@ async def run_background(arguments: dict[str, Any]) -> list[TextContent]:
         # Wait for process to start
         if input_data.wait_for_ready > 0:
             import asyncio
+
             await asyncio.sleep(input_data.wait_for_ready)
 
         # Format response based on requested format
@@ -1296,36 +1449,43 @@ async def run_background(arguments: dict[str, Any]) -> list[TextContent]:
                 message=message,
             )
         else:  # JSON format
-            response = fmt.format_human_readable_response(
+            response = fmt.format_json_response(
                 status="success",
-                output=f"Process started in background: {' '.join(input_data.command)}\nWaited {input_data.wait_for_ready} seconds for startup.\nUse dotnet_get_logs to check process output.",
-                project_id=input_data.project_id,
-                container_id=container_id,
+                data={
+                    "project_id": input_data.project_id,
+                    "container_id": container_id,
+                    "command": input_data.command,
+                    "wait_for_ready": input_data.wait_for_ready,
+                    "message": "Process started in background",
+                },
             )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker operation failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to run background process",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1352,6 +1512,7 @@ async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
 
         # Make HTTP request using httpx
         import time
+
         start_time = time.time()
 
         async with httpx.AsyncClient(timeout=input_data.timeout) as client:
@@ -1387,34 +1548,32 @@ async def test_endpoint(arguments: dict[str, Any]) -> list[TextContent]:
                 detail_level=input_data.detail_level,
             )
         else:  # JSON format
-            output = f"""HTTP {input_data.method} {input_data.url}
-Status: {response.status_code} {response.reason_phrase}
-Response Time: {response_time_ms}ms
-
-Headers:
-{chr(10).join(f'  {k}: {v}' for k, v in response.headers.items())}
-
-Body:
-{response.text}"""
-
-            result = fmt.format_human_readable_response(
+            result = fmt.format_json_response(
                 status="success" if 200 <= response.status_code < 400 else "error",
-                output=output,
+                data={
+                    "method": input_data.method,
+                    "url": input_data.url,
+                    "status_code": response.status_code,
+                    "response_body": response.text,
+                    "response_headers": dict(response.headers),
+                    "response_time_ms": response_time_ms,
+                },
             )
 
         return [TextContent(type="text", text=result)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except httpx.TimeoutException:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message=f"Request timed out after {input_data.timeout} seconds",
             error_details=f"Could not connect to {input_data.url}",
             suggestions=[
@@ -1423,12 +1582,13 @@ Body:
                 "Use dotnet_get_logs to check server startup",
                 "Increase timeout if server is slow to start",
             ],
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except httpx.ConnectError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Connection refused",
             error_details=str(e),
             suggestions=[
@@ -1437,14 +1597,16 @@ Body:
                 "Ensure port mapping was configured: dotnet_start_container(ports={...})",
                 "Wait a bit longer for server to start",
             ],
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="HTTP request failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1492,40 +1654,42 @@ async def get_logs(arguments: dict[str, Any]) -> list[TextContent]:
                 detail_level=input_data.detail_level,
             )
         else:  # JSON format
-            if not logs:
-                output = "No logs available (container may have just started)"
-            else:
-                output = f"Container logs (last {input_data.tail} lines):\n\n{logs}"
-
-            response = fmt.format_human_readable_response(
+            response = fmt.format_json_response(
                 status="success",
-                output=output,
-                project_id=input_data.project_id,
+                data={
+                    "project_id": input_data.project_id,
+                    "logs": logs,
+                    "tail": input_data.tail,
+                    "since": input_data.since,
+                },
             )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker operation failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to get logs",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1574,42 +1738,56 @@ async def kill_process(arguments: dict[str, Any]) -> list[TextContent]:
             timeout=5,
         )
 
-        if exit_code == 0:
-            output = f"Successfully killed {desc} in container '{input_data.project_id}'"
-        elif exit_code == 1:
-            output = f"No {desc} found running in container '{input_data.project_id}'"
-        else:
-            output = f"Kill command completed with exit code {exit_code}\nStderr: {stderr}"
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            if exit_code == 0:
+                message = f"Successfully killed {desc}."
+            elif exit_code == 1:
+                message = f"No {desc} found running."
+            else:
+                message = f"Kill command completed with exit code {exit_code}.\n\n**Stderr:**\n```\n{stderr}\n```"
 
-        response = fmt.format_human_readable_response(
-            status="success",
-            output=output,
-            project_id=input_data.project_id,
-        )
+            response = (
+                f"# Process Management ✓\n\n**Project:** {input_data.project_id}\n\n{message}"
+            )
+        else:
+            response = fmt.format_json_response(
+                status="success",
+                data={
+                    "project_id": input_data.project_id,
+                    "exit_code": exit_code,
+                    "processes_killed": exit_code == 0,
+                    "target": desc,
+                    "stderr": stderr if stderr else None,
+                },
+            )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker operation failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to kill processes",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1624,8 +1802,8 @@ async def list_containers(arguments: dict[str, Any]) -> list[TextContent]:
         List with single TextContent containing container list or error
     """
     try:
-        # Validate input (should be empty dict)
-        ListContainersInput(**arguments)
+        # Validate input
+        input_data = ListContainersInput(**arguments)
 
         # Initialize components
         mgr, _, fmt = _initialize_components()
@@ -1633,62 +1811,85 @@ async def list_containers(arguments: dict[str, Any]) -> list[TextContent]:
         # Get all managed containers
         containers = mgr.list_containers()
 
-        if not containers:
-            response = fmt.format_human_readable_response(
-                status="success",
-                output="No active containers found. Start a container with dotnet_start_container.",
-            )
-            return [TextContent(type="text", text=response)]
-
-        # Format container information
-        output_lines = [f"Found {len(containers)} active container(s):"]
-        output_lines.append("")
-
-        for idx, container in enumerate(containers, 1):
-            output_lines.append(f"{idx}. Project: {container.project_id}")
-            output_lines.append(f"   Container ID: {container.container_id[:12]}")
-            output_lines.append(f"   Name: {container.name}")
-            output_lines.append(f"   Status: {container.status}")
-
-            if container.ports:
-                output_lines.append("   Port Mappings:")
-                for container_port, host_port in container.ports.items():
-                    output_lines.append(f"     - Container {container_port} → Host {host_port}")
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            if not containers:
+                response = "# Active Containers ✓\n\nNo active containers found.\n\nStart a container with `dotnet_start_container`."
             else:
-                output_lines.append("   Port Mappings: None")
+                sections = [
+                    "# Active Containers ✓",
+                    "",
+                    f"Found **{len(containers)}** active container(s):",
+                    "",
+                ]
 
-            output_lines.append("")
+                for idx, container in enumerate(containers, 1):
+                    sections.append(f"## {idx}. {container.project_id}")
+                    sections.append("")
+                    sections.append(f"- **Container ID:** `{container.container_id[:12]}`")
+                    sections.append(f"- **Name:** {container.name}")
+                    sections.append(f"- **Status:** {container.status}")
 
-        output = "\n".join(output_lines)
+                    if container.ports:
+                        sections.append("- **Port Mappings:**")
+                        for container_port, host_port in container.ports.items():
+                            sections.append(
+                                f"  - Container `{container_port}` → Host `{host_port}` (http://localhost:{host_port})"
+                            )
+                    else:
+                        sections.append("- **Port Mappings:** None")
 
-        response = fmt.format_human_readable_response(
-            status="success",
-            output=output,
-        )
+                    sections.append("")
+
+                response = "\n".join(sections)
+        else:
+            # JSON format
+            container_data = []
+            for container in containers:
+                container_data.append(
+                    {
+                        "project_id": container.project_id,
+                        "container_id": container.container_id,
+                        "name": container.name,
+                        "status": container.status,
+                        "ports": container.ports if container.ports else {},
+                    }
+                )
+
+            response = fmt.format_json_response(
+                status="success",
+                data={
+                    "containers": container_data,
+                    "count": len(containers),
+                },
+            )
 
         return [TextContent(type="text", text=response)]
 
     except ValidationError as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Invalid input parameters",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except DockerException as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Docker operation failed",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
     except Exception as e:
-        error_response = OutputFormatter().format_human_readable_response(
-            status="error",
+        response_format = _get_response_format(arguments)
+        error_response = _format_error_response(
             error_message="Failed to list containers",
             error_details=str(e),
+            response_format=response_format,
         )
         return [TextContent(type="text", text=error_response)]
 
@@ -1732,6 +1933,7 @@ def cleanup_all_containers() -> None:
             try:
                 print(f"Shutdown cleanup FAILED: {type(e).__name__}: {e}", file=sys.stderr)
                 import traceback
+
                 traceback.print_exc(file=sys.stderr)
             except (BrokenPipeError, OSError):
                 pass  # If we can't log, continue anyway

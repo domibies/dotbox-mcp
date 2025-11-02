@@ -798,7 +798,10 @@ class TestTestEndpointInput:
 
         assert input_data.url == "https://api.example.com/users"
         assert input_data.method == "POST"
-        assert input_data.headers == {"Content-Type": "application/json", "Authorization": "Bearer token"}
+        assert input_data.headers == {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer token",
+        }
         assert input_data.body == '{"name": "John"}'
         assert input_data.timeout == 60
 

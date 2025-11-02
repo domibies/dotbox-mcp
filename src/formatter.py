@@ -276,7 +276,6 @@ class OutputFormatter:
 
         return result
 
-
     def format_json_response(
         self,
         status: str,
@@ -387,7 +386,7 @@ class OutputFormatter:
         # Metadata
         metadata = {}
         if dotnet_version:
-            metadata["Runtime"] = f".NET {dotnet_version} ({execution_time_ms/1000:.1f}s)"
+            metadata["Runtime"] = f".NET {dotnet_version} ({execution_time_ms / 1000:.1f}s)"
         if exit_code != 0:
             metadata["Exit Code"] = str(exit_code)
         if metadata:
@@ -401,18 +400,20 @@ class OutputFormatter:
 
         # Output section
         if stdout.strip():
-            sections.append(MarkdownFormatter.format_section(
-                "Output",
-                MarkdownFormatter.format_code_block(stdout.strip())
-            ))
+            sections.append(
+                MarkdownFormatter.format_section(
+                    "Output", MarkdownFormatter.format_code_block(stdout.strip())
+                )
+            )
             sections.append("")
 
         # Error section
         if stderr.strip():
-            sections.append(MarkdownFormatter.format_section(
-                "Error Output",
-                MarkdownFormatter.format_code_block(stderr.strip())
-            ))
+            sections.append(
+                MarkdownFormatter.format_section(
+                    "Error Output", MarkdownFormatter.format_code_block(stderr.strip())
+                )
+            )
             sections.append("")
 
         # Footer
@@ -454,25 +455,29 @@ class OutputFormatter:
 
         # Metadata
         if dotnet_version:
-            sections.append(MarkdownFormatter.format_metadata({
-                "Runtime": f".NET {dotnet_version} ({execution_time_ms/1000:.1f}s)"
-            }))
+            sections.append(
+                MarkdownFormatter.format_metadata(
+                    {"Runtime": f".NET {dotnet_version} ({execution_time_ms / 1000:.1f}s)"}
+                )
+            )
             sections.append("")
 
         # Errors
         if errors:
-            sections.append(MarkdownFormatter.format_section(
-                "Errors",
-                MarkdownFormatter.format_error_list(errors)
-            ))
+            sections.append(
+                MarkdownFormatter.format_section(
+                    "Errors", MarkdownFormatter.format_error_list(errors)
+                )
+            )
             sections.append("")
 
         # Suggestions
         if suggestions:
-            sections.append(MarkdownFormatter.format_section(
-                "Suggestions",
-                MarkdownFormatter.format_suggestions(suggestions)
-            ))
+            sections.append(
+                MarkdownFormatter.format_section(
+                    "Suggestions", MarkdownFormatter.format_suggestions(suggestions)
+                )
+            )
 
         return "\n".join(sections)
 
@@ -522,7 +527,9 @@ class OutputFormatter:
             sections.append("")
 
             if len(errors) > 10 and detail_level == DetailLevel.CONCISE:
-                sections.append(f"*... and {len(errors) - 10} more errors. Use `detail_level='full'` to see all.*")
+                sections.append(
+                    f"*... and {len(errors) - 10} more errors. Use `detail_level='full'` to see all.*"
+                )
                 sections.append("")
 
         # Single error message
@@ -656,14 +663,21 @@ class OutputFormatter:
 
         # Extract path from URL for cleaner display
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
         path = parsed.path or "/"
 
         # Status code text
         status_text = {
-            200: "OK", 201: "Created", 204: "No Content",
-            400: "Bad Request", 401: "Unauthorized", 403: "Forbidden",
-            404: "Not Found", 500: "Internal Server Error", 503: "Service Unavailable"
+            200: "OK",
+            201: "Created",
+            204: "No Content",
+            400: "Bad Request",
+            401: "Unauthorized",
+            403: "Forbidden",
+            404: "Not Found",
+            500: "Internal Server Error",
+            503: "Service Unavailable",
         }.get(status_code, "")
 
         # Header
@@ -679,10 +693,11 @@ class OutputFormatter:
         # Headers (only in full detail mode)
         if response_headers and detail_level == DetailLevel.FULL:
             header_lines = "\n".join(f"{k}: {v}" for k, v in response_headers.items())
-            sections.append(MarkdownFormatter.format_section(
-                "Headers",
-                MarkdownFormatter.format_code_block(header_lines)
-            ))
+            sections.append(
+                MarkdownFormatter.format_section(
+                    "Headers", MarkdownFormatter.format_code_block(header_lines)
+                )
+            )
             sections.append("")
 
         # Response body
@@ -692,15 +707,17 @@ class OutputFormatter:
 
             # Try to format as JSON if it looks like JSON
             if response_body.strip().startswith("{") or response_body.strip().startswith("["):
-                sections.append(MarkdownFormatter.format_section(
-                    "Response",
-                    MarkdownFormatter.format_code_block(response_body, "json")
-                ))
+                sections.append(
+                    MarkdownFormatter.format_section(
+                        "Response", MarkdownFormatter.format_code_block(response_body, "json")
+                    )
+                )
             else:
-                sections.append(MarkdownFormatter.format_section(
-                    "Response",
-                    MarkdownFormatter.format_code_block(response_body)
-                ))
+                sections.append(
+                    MarkdownFormatter.format_section(
+                        "Response", MarkdownFormatter.format_code_block(response_body)
+                    )
+                )
             sections.append("")
 
         # Error message (if any)
@@ -745,10 +762,11 @@ class OutputFormatter:
             if detail_level == DetailLevel.CONCISE:
                 logs = self._truncate_to_first_n_lines(logs, 50)
 
-            sections.append(MarkdownFormatter.format_section(
-                "Logs",
-                MarkdownFormatter.format_code_block(logs.strip())
-            ))
+            sections.append(
+                MarkdownFormatter.format_section(
+                    "Logs", MarkdownFormatter.format_code_block(logs.strip())
+                )
+            )
         else:
             sections.append("*No logs available*")
 

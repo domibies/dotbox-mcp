@@ -403,7 +403,6 @@ class TestOutputFormatter:
         assert "Output" in result
 
 
-
 class TestMarkdownFormatter:
     """Test MarkdownFormatter helper class."""
 

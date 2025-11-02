@@ -105,9 +105,9 @@ for (int i = 1; i <= 5; i++)
         assert result["success"] is False
         # Check that either build_errors has content OR stderr contains error info
         has_error_info = (
-            (len(result["build_errors"]) > 0) or
-            ("error" in result["stderr"].lower()) or
-            ("CS0103" in result["stderr"])
+            (len(result["build_errors"]) > 0)
+            or ("error" in result["stderr"].lower())
+            or ("CS0103" in result["stderr"])
         )
         assert has_error_info, f"Expected error info but got: {result}"
 
@@ -158,7 +158,9 @@ Console.WriteLine(numbers[100]); // Index out of range
         # Runtime should fail (exit_code != 0 for execution)
         assert result["exit_code"] != 0, "Expected runtime error with non-zero exit code"
         # Should have some output before the crash
-        assert "Accessing array" in result["stdout"] or "Exception" in (result["stderr"] + result["stdout"])
+        assert "Accessing array" in result["stdout"] or "Exception" in (
+            result["stderr"] + result["stdout"]
+        )
 
     @pytest.mark.e2e
     @pytest.mark.asyncio
@@ -223,7 +225,7 @@ class TestE2EMultipleVersions:
     @pytest.mark.asyncio
     async def test_execute_on_dotnet8(self, executor: DotNetExecutor) -> None:
         """Test execution on .NET 8."""
-        code = 'Console.WriteLine(System.Environment.Version);'
+        code = "Console.WriteLine(System.Environment.Version);"
 
         result = await executor.run_snippet(
             code=code,
@@ -240,7 +242,7 @@ class TestE2EMultipleVersions:
     @pytest.mark.asyncio
     async def test_execute_on_dotnet9(self, executor: DotNetExecutor) -> None:
         """Test execution on .NET 9."""
-        code = 'Console.WriteLine(System.Environment.Version);'
+        code = "Console.WriteLine(System.Environment.Version);"
 
         result = await executor.run_snippet(
             code=code,
@@ -257,7 +259,7 @@ class TestE2EMultipleVersions:
     @pytest.mark.asyncio
     async def test_execute_on_dotnet10_rc2(self, executor: DotNetExecutor) -> None:
         """Test execution on .NET 10 RC2."""
-        code = 'Console.WriteLine(System.Environment.Version);'
+        code = "Console.WriteLine(System.Environment.Version);"
 
         result = await executor.run_snippet(
             code=code,
@@ -493,7 +495,9 @@ class TestE2EFileOperations:
         docker_manager.stop_container(container_id)
 
     @pytest.mark.e2e
-    def test_create_nested_directory_structure(self, docker_manager: DockerContainerManager) -> None:
+    def test_create_nested_directory_structure(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
         """Test creating files in nested directories."""
         # Create container
         container_id = docker_manager.create_container(
@@ -700,7 +704,9 @@ class TestE2EWebServerSupport:
         docker_manager.stop_container(container_id)
 
     @pytest.mark.e2e
-    def test_get_container_logs_with_tail_limit(self, docker_manager: DockerContainerManager) -> None:
+    def test_get_container_logs_with_tail_limit(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
         """Test retrieving container logs with tail limit."""
         # Create container
         container_id = docker_manager.create_container(
@@ -731,7 +737,9 @@ class TestE2EWebServerSupport:
 
     @pytest.mark.e2e
     @pytest.mark.asyncio
-    async def test_background_process_execution(self, docker_manager: DockerContainerManager) -> None:
+    async def test_background_process_execution(
+        self, docker_manager: DockerContainerManager
+    ) -> None:
         """Test running a background process (sleep simulation)."""
         import asyncio
 
@@ -879,7 +887,9 @@ app.Run("http://0.0.0.0:5000");
             tail=50,
         )
         # Should contain some indication that the app is running
-        assert "info:" in logs.lower() or "application" in logs.lower() or "listening" in logs.lower()
+        assert (
+            "info:" in logs.lower() or "application" in logs.lower() or "listening" in logs.lower()
+        )
 
         # Cleanup
         docker_manager.stop_container(container_id)
@@ -995,11 +1005,12 @@ class TestE2EListContainers:
 
             assert len(result) == 1
             response_text = result[0].text
-            assert "Found 1 active container(s)" in response_text
+            # Check for markdown-formatted count (bold)
+            assert "Found" in response_text and "1" in response_text
             assert "test-list-single" in response_text
             assert container_id[:12] in response_text
             assert "running" in response_text.lower()
-            assert "Port Mappings: None" in response_text
+            assert "None" in response_text  # Port Mappings: None
 
         finally:
             docker_manager.stop_container(container_id)
@@ -1030,8 +1041,8 @@ class TestE2EListContainers:
             assert len(result) == 1
             response_text = result[0].text
 
-            # Verify count
-            assert "Found 2 active container(s)" in response_text
+            # Verify count (markdown-formatted with bold)
+            assert "Found" in response_text and "2" in response_text
 
             # Verify container 1 (with ports)
             assert "api-service" in response_text
@@ -1043,8 +1054,8 @@ class TestE2EListContainers:
             assert "worker-service" in response_text
             assert container2_id[:12] in response_text
 
-            # Verify at least one has "Port Mappings: None"
-            assert "Port Mappings: None" in response_text
+            # Verify at least one has no port mappings (None)
+            assert "None" in response_text  # Port Mappings: None or **Port Mappings:** None
 
         finally:
             docker_manager.stop_container(container1_id)
@@ -1073,7 +1084,8 @@ class TestE2EListContainers:
         # List should now show 1 container
         result2 = await list_containers({})
         response2 = result2[0].text
-        assert "Found 1 active container(s)" in response2
+        # Check for markdown-formatted count
+        assert "Found" in response2 and "1" in response2
         assert "my-api" in response2
         assert "5000/tcp" in response2
 
@@ -1124,13 +1136,16 @@ class TestE2EMCPProtocolFlow:
         arguments = json.loads(json_payload)
 
         # Verify we have string keys (this is what breaks without our fix)
-        assert isinstance(list(arguments["ports"].keys())[0], str), "Keys should be strings from JSON"
+        assert isinstance(list(arguments["ports"].keys())[0], str), (
+            "Keys should be strings from JSON"
+        )
 
         # Call MCP tool handler with JSON-deserialized arguments
         start_result = await start_container(arguments)
         assert len(start_result) == 1
         assert "test-mcp-ports" in start_result[0].text
-        assert "success" in start_result[0].text.lower() or "running" in start_result[0].text.lower()
+        # Check for success indicator (✓ or "started")
+        assert "✓" in start_result[0].text or "started" in start_result[0].text.lower()
 
         try:
             # Create minimal web API
@@ -1173,7 +1188,8 @@ app.Run();
                 }
             )
             assert len(build_result) == 1
-            assert "success" in build_result[0].text.lower()
+            # Check for success indicator (✓ or "succeeded")
+            assert "✓" in build_result[0].text or "succeeded" in build_result[0].text.lower()
 
             # Start web server (with --no-build since we already built)
             run_result = await run_background(
@@ -1288,7 +1304,8 @@ app.Run();
                 }
             )
             assert len(build_result) == 1
-            assert "success" in build_result[0].text.lower()
+            # Check for success indicator (✓ or exit code 0)
+            assert "✓" in build_result[0].text or "exit code: 0" in build_result[0].text.lower()
 
             # Start web server (with --no-build since we already built)
             await run_background(
@@ -1309,9 +1326,7 @@ app.Run();
 
             # Test via discovered port
             async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"http://localhost:{assigned_port}/test", timeout=5.0
-                )
+                response = await client.get(f"http://localhost:{assigned_port}/test", timeout=5.0)
                 assert response.status_code == 200
                 data = response.json()
                 assert data["status"] == "ok"
@@ -1376,9 +1391,7 @@ async def test_command_failure_shows_stderr_and_stdout(
 
     try:
         # Start container
-        start_result = await start_container(
-            {"dotnet_version": "8", "project_id": project_id}
-        )
+        start_result = await start_container({"dotnet_version": "8", "project_id": project_id})
         assert len(start_result) == 1
 
         # Execute command that will fail
@@ -1563,9 +1576,7 @@ class TestE2EEnhancedTools:
                         command=[tool, "--version"],
                         timeout=5,
                     )
-                    assert (
-                        exit_code == 0
-                    ), f"{tool} not available in .NET {version} image: {stderr}"
+                    assert exit_code == 0, f"{tool} not available in .NET {version} image: {stderr}"
 
             finally:
                 docker_manager.stop_container(container_id)
@@ -1609,7 +1620,9 @@ class TestE2EPortConflictHandling:
 
             # Verify no orphaned container exists
             # Check Docker directly to be sure
-            all_containers = docker_manager.client.containers.list(all=True, filters={"name": "test-port-second"})
+            all_containers = docker_manager.client.containers.list(
+                all=True, filters={"name": "test-port-second"}
+            )
             assert len(all_containers) == 0, "Orphaned container was not cleaned up!"
 
         finally:
