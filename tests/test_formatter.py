@@ -2,7 +2,7 @@
 
 import json
 
-from src.formatter import OutputFormatter
+from src.formatter import MarkdownFormatter, OutputFormatter
 from src.models import DetailLevel
 
 
@@ -402,3 +402,187 @@ class TestOutputFormatter:
         # But should still have output
         assert "Output" in result
 
+
+class TestMarkdownFormatter:
+    """Test MarkdownFormatter helper class."""
+
+    def test_format_header_success(self) -> None:
+        """Test formatting success header."""
+        result = MarkdownFormatter.format_header("success", "Execution Result")
+        assert result == "# Execution Result ✓"
+
+    def test_format_header_error(self) -> None:
+        """Test formatting error header."""
+        result = MarkdownFormatter.format_header("error", "Build Failed")
+        assert result == "# Build Failed ✗"
+
+    def test_format_metadata(self) -> None:
+        """Test formatting metadata."""
+        metadata = {"Runtime": ".NET 8.0.0", "Container": "abc123"}
+        result = MarkdownFormatter.format_metadata(metadata)
+        assert "**Runtime:** .NET 8.0.0" in result
+        assert "**Container:** abc123" in result
+
+    def test_format_code_block(self) -> None:
+        """Test formatting code block."""
+        result = MarkdownFormatter.format_code_block("Console.WriteLine();", "csharp")
+        assert result.startswith("```csharp")
+        assert "Console.WriteLine();" in result
+        assert result.endswith("```")
+
+    def test_format_section(self) -> None:
+        """Test formatting section."""
+        result = MarkdownFormatter.format_section("Output", "Hello World")
+        assert result.startswith("## Output")
+        assert "Hello World" in result
+
+    def test_format_error_list(self) -> None:
+        """Test formatting error list."""
+        errors = ["error CS0103: Name not found", "error CS0246: Type not found"]
+        result = MarkdownFormatter.format_error_list(errors)
+        assert "**error CS0103" in result
+        assert "**error CS0246" in result
+
+    def test_format_suggestions(self) -> None:
+        """Test formatting suggestions."""
+        suggestions = ["Add using directive", "Check variable name"]
+        result = MarkdownFormatter.format_suggestions(suggestions)
+        assert "- Add using directive" in result
+        assert "- Check variable name" in result
+
+
+class TestMarkdownFormatMethods:
+    """Test Markdown formatting methods."""
+
+    def test_format_execution_result_markdown_success(self) -> None:
+        """Test formatting successful execution as Markdown."""
+        formatter = OutputFormatter()
+        result = formatter.format_execution_result_markdown(
+            status="success",
+            stdout="Hello, World!",
+            stderr="",
+            exit_code=0,
+            dotnet_version="8.0.0",
+            execution_time_ms=1234,
+            detail_level=DetailLevel.CONCISE,
+        )
+
+        assert "# Execution Result ✓" in result
+        assert "**Runtime:** .NET 8.0.0 (1.2s)" in result
+        assert "## Output" in result
+        assert "Hello, World!" in result
+        assert "```" in result
+        assert "*C# code executed successfully*" in result
+
+    def test_format_execution_result_markdown_error(self) -> None:
+        """Test formatting execution error as Markdown."""
+        formatter = OutputFormatter()
+        result = formatter.format_execution_result_markdown(
+            status="error",
+            stdout="",
+            stderr="Unhandled exception: Division by zero",
+            exit_code=1,
+            dotnet_version="8.0.0",
+            execution_time_ms=500,
+            detail_level=DetailLevel.CONCISE,
+        )
+
+        assert "# Execution Failed ✗" in result
+        assert "**Runtime:** .NET 8.0.0" in result
+        assert "**Exit Code:** 1" in result
+        assert "## Error Output" in result
+        assert "Division by zero" in result
+
+    def test_format_build_error_markdown(self) -> None:
+        """Test formatting build errors as Markdown."""
+        formatter = OutputFormatter()
+        errors = ["error CS0103: The name 'x' does not exist"]
+        suggestions = ["Check variable name", "Add using directive"]
+
+        result = formatter.format_build_error_markdown(
+            errors=errors,
+            suggestions=suggestions,
+            dotnet_version="8.0.0",
+            execution_time_ms=500,
+        )
+
+        assert "# Build Failed ✗" in result
+        assert "**Runtime:** .NET 8.0.0 (0.5s)" in result
+        assert "## Errors" in result
+        assert "**error CS0103" in result
+        assert "## Suggestions" in result
+        assert "- Check variable name" in result
+        assert "- Add using directive" in result
+
+    def test_format_logs_markdown(self) -> None:
+        """Test formatting logs as Markdown."""
+        formatter = OutputFormatter()
+        logs = "2024-11-02 10:00:00 Server started\n2024-11-02 10:00:01 Listening on port 8080"
+
+        result = formatter.format_logs_markdown(
+            project_id="my-project",
+            logs=logs,
+            tail=50,
+            detail_level=DetailLevel.CONCISE,
+        )
+
+        assert "# Container Logs ✓" in result
+        assert "**Project:** my-project" in result
+        assert "**Lines:** 50" in result
+        assert "## Logs" in result
+        assert "Server started" in result
+        assert "```" in result
+
+    def test_format_container_info_markdown_with_urls(self) -> None:
+        """Test formatting container info with URLs."""
+        formatter = OutputFormatter()
+        result = formatter.format_container_info_markdown(
+            project_id="my-api",
+            container_id="abc123def456",
+            dotnet_version="8.0.0",
+            urls=["http://localhost:8080", "http://localhost:8080/swagger"],
+            status="success",
+        )
+
+        assert "# Container Started ✓" in result
+        assert "**Project:** my-api" in result
+        assert "**Container:** abc123def456" in result
+        assert "**Runtime:** .NET 8.0.0" in result
+        assert "## Access URLs" in result
+        assert "http://localhost:8080" in result
+        assert "http://localhost:8080/swagger" in result
+        assert "*Each URL on its own line for clickability*" in result
+
+    def test_format_endpoint_response_markdown_success(self) -> None:
+        """Test formatting HTTP response as Markdown."""
+        formatter = OutputFormatter()
+        result = formatter.format_endpoint_response_markdown(
+            method="GET",
+            url="http://localhost:8080/api/users",
+            status_code=200,
+            response_body='{"users": [{"id": 1, "name": "John"}]}',
+            response_time_ms=145,
+            detail_level=DetailLevel.CONCISE,
+        )
+
+        assert "# GET /api/users → 200 OK ✓" in result
+        assert "**Response Time:** 145ms" in result
+        assert "## Response" in result
+        assert "```json" in result
+        assert "users" in result
+
+    def test_format_endpoint_response_markdown_error(self) -> None:
+        """Test formatting HTTP error response as Markdown."""
+        formatter = OutputFormatter()
+        result = formatter.format_endpoint_response_markdown(
+            method="GET",
+            url="http://localhost:8080/api/users",
+            status_code=500,
+            response_body='{"error": "Internal server error"}',
+            response_time_ms=234,
+            detail_level=DetailLevel.CONCISE,
+        )
+
+        assert "# GET /api/users → 500 Internal Server Error ✗" in result
+        assert "**Response Time:** 234ms" in result
+        assert "error" in result.lower()

@@ -25,6 +25,13 @@ class DetailLevel(str, Enum):
     FULL = "full"
 
 
+class ResponseFormat(str, Enum):
+    """Output format for tool responses."""
+
+    MARKDOWN = "markdown"
+    JSON = "json"
+
+
 class ExecuteSnippetInput(BaseModel):
     """Input model for executing a C# code snippet."""
 
@@ -48,6 +55,10 @@ class ExecuteSnippetInput(BaseModel):
     detail_level: DetailLevel = Field(
         default=DetailLevel.CONCISE,
         description="Output detail: 'concise' (first 50 lines) or 'full' (complete output)",
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
     )
 
     @field_validator("dotnet_version", mode="before")
@@ -104,6 +115,10 @@ class StartContainerInput(BaseModel):
     ports: dict[int, int] | None = Field(
         default=None,
         description="Port mapping {container_port: host_port}. Use 0 for auto-assignment (e.g., {5000: 0} auto-assigns host port). Container port cannot be 0.",
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
     )
 
     @field_validator("dotnet_version", mode="before")
@@ -272,6 +287,10 @@ class StopContainerInput(BaseModel):
         min_length=1,
         max_length=50,
     )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
+    )
 
 
 class WriteFileInput(BaseModel):
@@ -296,6 +315,10 @@ class WriteFileInput(BaseModel):
         description="File content to write",
         min_length=0,
         max_length=100000,
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
     )
 
     @field_validator("path")
@@ -326,6 +349,10 @@ class ReadFileInput(BaseModel):
         min_length=1,
         max_length=500,
     )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
+    )
 
     @field_validator("path")
     @classmethod
@@ -354,6 +381,10 @@ class ListFilesInput(BaseModel):
         description="Directory path inside container (default: /workspace)",
         min_length=1,
         max_length=500,
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
     )
 
     @field_validator("path")
@@ -390,6 +421,10 @@ class ExecuteCommandInput(BaseModel):
         ge=1,
         le=300,
     )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
+    )
 
     @field_validator("command")
     @classmethod
@@ -425,6 +460,10 @@ class RunBackgroundInput(BaseModel):
         description="Seconds to wait for process to start before returning (default: 5)",
         ge=0,
         le=60,
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
     )
 
     @field_validator("command")
@@ -469,6 +508,14 @@ class TestEndpointInput(BaseModel):
         ge=1,
         le=300,
     )
+    detail_level: DetailLevel = Field(
+        default=DetailLevel.CONCISE,
+        description="Output detail: 'concise' (body only) or 'full' (headers + body)",
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
+    )
 
     @field_validator("url")
     @classmethod
@@ -502,6 +549,14 @@ class GetLogsInput(BaseModel):
         ge=1,
         le=3600,
     )
+    detail_level: DetailLevel = Field(
+        default=DetailLevel.CONCISE,
+        description="Output detail: 'concise' (first 50 lines) or 'full' (complete logs)",
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
+    )
 
 
 class KillProcessInput(BaseModel):
@@ -520,6 +575,10 @@ class KillProcessInput(BaseModel):
         description="Process pattern to kill (e.g., 'dotnet run'). If not specified, kills all background dotnet processes.",
         max_length=200,
     )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
+    )
 
 
 class ListContainersInput(BaseModel):
@@ -529,3 +588,8 @@ class ListContainersInput(BaseModel):
     """
 
     model_config = ConfigDict(str_strip_whitespace=True)
+
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (human-readable, default) or 'json' (structured data)",
+    )

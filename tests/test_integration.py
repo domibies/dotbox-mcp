@@ -27,9 +27,7 @@ class TestMCPIntegration:
     """Integration tests for MCP server tool."""
 
     @pytest.mark.asyncio
-    async def test_execute_snippet_end_to_end_success(
-        self, mock_docker_client: MagicMock
-    ) -> None:
+    async def test_execute_snippet_end_to_end_success(self, mock_docker_client: MagicMock) -> None:
         """Test successful snippet execution through MCP tool."""
         # Mock successful file operations, build, and run
         mock_empty = MagicMock()
@@ -80,9 +78,7 @@ class TestMCPIntegration:
             assert "Hello World" in formatted
 
     @pytest.mark.asyncio
-    async def test_execute_snippet_with_build_error(
-        self, mock_docker_client: MagicMock
-    ) -> None:
+    async def test_execute_snippet_with_build_error(self, mock_docker_client: MagicMock) -> None:
         """Test snippet execution with compilation error."""
         # Mock file operations succeeding, then build failure
         mock_empty = MagicMock()
@@ -90,9 +86,7 @@ class TestMCPIntegration:
         mock_empty.exit_code = 0
 
         mock_build = MagicMock()
-        mock_build.output = (
-            b"Program.cs(1,1): error CS0103: The name 'InvalidCode' does not exist"
-        )
+        mock_build.output = b"Program.cs(1,1): error CS0103: The name 'InvalidCode' does not exist"
         mock_build.exit_code = 1
 
         # Mock put_archive for both directories and file writes
@@ -123,9 +117,7 @@ class TestMCPIntegration:
             assert "CS0103" in result["build_errors"][0]
 
     @pytest.mark.asyncio
-    async def test_execute_snippet_with_packages(
-        self, mock_docker_client: MagicMock
-    ) -> None:
+    async def test_execute_snippet_with_packages(self, mock_docker_client: MagicMock) -> None:
         """Test snippet execution with NuGet packages."""
         # Mock successful file operations, build, and run
         mock_empty = MagicMock()
@@ -194,9 +186,7 @@ class TestMCPIntegration:
             )
 
     @pytest.mark.asyncio
-    async def test_output_truncation_integration(
-        self, mock_docker_client: MagicMock
-    ) -> None:
+    async def test_output_truncation_integration(self, mock_docker_client: MagicMock) -> None:
         """Test that concise mode truncates output properly."""
         # Generate 100 lines of output
         output_lines = [f"Line {i}" for i in range(100)]
@@ -255,9 +245,7 @@ class TestMCPIntegration:
             assert len(formatted_concise) < len(formatted_full)
 
     @pytest.mark.asyncio
-    async def test_container_cleanup_integration(
-        self, mock_docker_client: MagicMock
-    ) -> None:
+    async def test_container_cleanup_integration(self, mock_docker_client: MagicMock) -> None:
         """Test that containers are cleaned up after execution."""
         mock_empty = MagicMock()
         mock_empty.output = b""
@@ -316,9 +304,12 @@ class TestMCPIntegration:
         # Each version needs: build, run = 2 calls (directories use put_archive now)
         # Testing 3 versions = 6 calls total
         mock_docker_client.containers.get.return_value.exec_run.side_effect = [
-            mock_result, mock_result,  # Version 1
-            mock_result, mock_result,  # Version 2
-            mock_result, mock_result,  # Version 3
+            mock_result,
+            mock_result,  # Version 1
+            mock_result,
+            mock_result,  # Version 2
+            mock_result,
+            mock_result,  # Version 3
         ]
 
         with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
@@ -390,6 +381,7 @@ class TestMCPIntegration:
         with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
             # Reset global state to force re-initialization with mocked client
             import src.server
+
             src.server.docker_manager = None
             src.server.executor = None
             src.server.formatter = None
@@ -446,23 +438,208 @@ class TestMCPIntegration:
         with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
             # Reset global state to force re-initialization with mocked client
             import src.server
+
             src.server.docker_manager = None
             src.server.executor = None
             src.server.formatter = None
 
             from src.server import list_containers
 
-            # Call handler
-            result = await list_containers({})
+            # Call handler with JSON format
+            result = await list_containers({"response_format": "json"})
 
             # Verify response
             assert len(result) == 1
             response_text = result[0].text
-            assert "Found 2 active container(s)" in response_text
-            assert "my-api" in response_text
-            assert "test-project" in response_text
-            assert "abc123def456"[:12] in response_text
-            assert "xyz789abc123"[:12] in response_text
-            assert "5000/tcp" in response_text
-            assert "8080" in response_text
-            assert "Port Mappings: None" in response_text  # Second container has no ports
+
+            # Parse JSON response
+            parsed = json.loads(response_text)
+            assert parsed["status"] == "success"
+            assert parsed["data"]["count"] == 2
+
+            containers = parsed["data"]["containers"]
+            assert len(containers) == 2
+
+            # Check first container
+            assert containers[0]["project_id"] == "my-api"
+            assert containers[0]["container_id"] == "abc123def456"
+            assert "5000/tcp" in containers[0]["ports"]
+            assert containers[0]["ports"]["5000/tcp"] == "8080"
+
+            # Check second container
+            assert containers[1]["project_id"] == "test-project"
+            assert containers[1]["container_id"] == "xyz789abc123"
+            assert containers[1]["ports"] == {}  # No ports
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "tool_name,input_args",
+        [
+            ("execute_snippet", {"code": 'Console.WriteLine("test");', "dotnet_version": "8"}),
+            ("start_container", {"project_id": "test-proj", "dotnet_version": "8"}),
+            (
+                "test_endpoint",
+                {"project_id": "test-proj", "url": "http://localhost:5000/", "method": "GET"},
+            ),
+            ("get_logs", {"project_id": "test-proj"}),
+            ("run_background", {"project_id": "test-proj", "command": ["dotnet", "run"]}),
+            ("stop_container", {"project_id": "test-proj"}),
+            (
+                "write_file",
+                {"project_id": "test-proj", "path": "/workspace/test.cs", "content": "test"},
+            ),
+            ("read_file", {"project_id": "test-proj", "path": "/workspace/Program.cs"}),
+            ("list_files", {"project_id": "test-proj", "path": "/workspace"}),
+            ("execute_command", {"project_id": "test-proj", "command": ["echo", "test"]}),
+            ("kill_process", {"project_id": "test-proj"}),
+            ("list_containers", {}),
+        ],
+    )
+    async def test_dual_format_matrix(
+        self, tool_name: str, input_args: dict, mock_docker_client: MagicMock
+    ) -> None:
+        """Matrix test: all tools support both Markdown and JSON formats."""
+        # Mock all Docker operations for success path
+        mock_result = MagicMock()
+        mock_result.output = b"test output"
+        mock_result.exit_code = 0
+
+        mock_container = mock_docker_client.containers.run.return_value
+        mock_container.id = "test123"
+        mock_container.name = "test-container"
+        mock_container.status = "running"
+        mock_container.labels = {"managed-by": "dotbox-mcp", "project-id": "test-proj"}
+        mock_container.attrs = {"NetworkSettings": {"Ports": {"5000/tcp": [{"HostPort": "8080"}]}}}
+
+        # Setup get to return the same container
+        mock_docker_client.containers.get.return_value = mock_container
+        mock_container.put_archive.return_value = True
+        mock_container.exec_run.return_value = mock_result
+        mock_container.logs.return_value = b"test logs"
+
+        # For list operations - return container for test-proj
+        mock_docker_client.containers.list.return_value = [mock_container]
+
+        # Mock HTTP response for test_endpoint
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = "OK"
+            mock_response.elapsed.total_seconds.return_value = 0.1
+            mock_httpx.return_value.__aenter__.return_value.request.return_value = mock_response
+
+            with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
+                # Reset global state
+                import src.server
+
+                src.server.docker_manager = None
+                src.server.executor = None
+                src.server.formatter = None
+
+                # Import tool handlers
+                from src.server import (
+                    execute_command,
+                    execute_snippet,
+                    get_logs,
+                    kill_process,
+                    list_containers,
+                    list_files,
+                    read_file,
+                    run_background,
+                    start_container,
+                    stop_container,
+                    test_endpoint,
+                    write_file,
+                )
+
+                tool_map = {
+                    "execute_snippet": execute_snippet,
+                    "start_container": start_container,
+                    "test_endpoint": test_endpoint,
+                    "get_logs": get_logs,
+                    "run_background": run_background,
+                    "stop_container": stop_container,
+                    "write_file": write_file,
+                    "read_file": read_file,
+                    "list_files": list_files,
+                    "execute_command": execute_command,
+                    "kill_process": kill_process,
+                    "list_containers": list_containers,
+                }
+
+                handler = tool_map[tool_name]
+
+                # Test Markdown format
+                markdown_input = {**input_args, "response_format": "markdown"}
+                markdown_result = await handler(markdown_input)
+                markdown_text = markdown_result[0].text
+
+                # Validate Markdown characteristics
+                assert "✓" in markdown_text or "✗" in markdown_text, (
+                    f"{tool_name}: Missing status symbol in Markdown"
+                )
+                assert markdown_text.startswith("#"), f"{tool_name}: Missing header in Markdown"
+
+                # Test JSON format
+                json_input = {**input_args, "response_format": "json"}
+                json_result = await handler(json_input)
+                json_text = json_result[0].text
+
+                # Validate JSON characteristics
+                parsed = json.loads(json_text)
+                assert "status" in parsed, f"{tool_name}: Missing status in JSON"
+                assert parsed["status"] in [
+                    "success",
+                    "error",
+                ], f"{tool_name}: Invalid status value"
+
+    async def test_read_file_json_structure(self, mock_docker_client: MagicMock) -> None:
+        """Regression test: read_file returns proper JSON structure with all required fields."""
+        # Setup mock container
+        mock_container = MagicMock()
+        mock_container.id = "test123"
+        mock_container.name = "test-container"
+        mock_container.status = "running"
+        mock_container.labels = {"managed-by": "dotbox-mcp", "project-id": "test-proj"}
+
+        # Mock containers.list to return our container (for get_container_by_project_id)
+        mock_docker_client.containers.list.return_value = [mock_container]
+
+        # Mock containers.get to return our container (for file operations)
+        mock_docker_client.containers.get.return_value = mock_container
+
+        # Mock file read - must return base64-encoded content
+        # exec_run returns an object with .output and .exit_code attributes
+        import base64
+
+        content = b"Hello, World!"
+        base64_content = base64.b64encode(content)
+
+        mock_result = MagicMock()
+        mock_result.exit_code = 0
+        mock_result.output = base64_content
+        mock_container.exec_run.return_value = mock_result
+
+        with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
+            # Reset global state
+            import src.server
+
+            src.server.docker_manager = None
+            src.server.executor = None
+            src.server.formatter = None
+
+            # Import tool handler
+            from src.server import read_file
+
+            # Execute with JSON format
+            result = await read_file(
+                {"project_id": "test-proj", "path": "/workspace/test.cs", "response_format": "json"}
+            )
+
+            # Parse and validate JSON structure
+            parsed = json.loads(result[0].text)
+            assert parsed["status"] == "success", "Status should be success"
+            assert "data" in parsed, "Missing data field in JSON response"
+            assert parsed["data"]["project_id"] == "test-proj", "Missing or incorrect project_id"
+            assert parsed["data"]["path"] == "/workspace/test.cs", "Missing or incorrect path"
+            assert parsed["data"]["content"] == "Hello, World!", "Missing or incorrect content"

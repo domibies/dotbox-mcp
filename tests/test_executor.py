@@ -41,9 +41,7 @@ class TestDotNetExecutor:
         assert "<PackageReference" not in csproj
 
     @pytest.mark.asyncio
-    async def test_generate_csproj_with_packages(
-        self, executor: DotNetExecutor
-    ) -> None:
+    async def test_generate_csproj_with_packages(self, executor: DotNetExecutor) -> None:
         """Test generating .csproj with NuGet packages."""
         csproj = await executor.generate_csproj(
             dotnet_version=DotNetVersion.V8,
@@ -89,20 +87,14 @@ class TestDotNetExecutor:
         assert version is None
 
     @pytest.mark.asyncio
-    async def test_get_latest_nuget_version_success(
-        self, executor: DotNetExecutor
-    ) -> None:
+    async def test_get_latest_nuget_version_success(self, executor: DotNetExecutor) -> None:
         """Test fetching latest version from NuGet API."""
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "versions": ["1.0.0", "2.0.0", "3.0.0-beta", "2.5.0"]
-        }
+        mock_response.json.return_value = {"versions": ["1.0.0", "2.0.0", "3.0.0-beta", "2.5.0"]}
 
         with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get.return_value = (
-                mock_response
-            )
+            mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
 
             version = await executor._get_latest_nuget_version("TestPackage")
 
@@ -118,22 +110,18 @@ class TestDotNetExecutor:
         mock_response.status_code = 404
 
         with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get.return_value = (
-                mock_response
-            )
+            mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
 
             version = await executor._get_latest_nuget_version("NonExistentPackage")
 
             assert version is None
 
     @pytest.mark.asyncio
-    async def test_get_latest_nuget_version_network_error(
-        self, executor: DotNetExecutor
-    ) -> None:
+    async def test_get_latest_nuget_version_network_error(self, executor: DotNetExecutor) -> None:
         """Test handling network errors gracefully."""
         with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get.side_effect = (
-                Exception("Network error")
+            mock_client.return_value.__aenter__.return_value.get.side_effect = Exception(
+                "Network error"
             )
 
             version = await executor._get_latest_nuget_version("TestPackage")
@@ -142,9 +130,7 @@ class TestDotNetExecutor:
             assert version is None
 
     @pytest.mark.asyncio
-    async def test_get_latest_nuget_version_caching(
-        self, executor: DotNetExecutor
-    ) -> None:
+    async def test_get_latest_nuget_version_caching(self, executor: DotNetExecutor) -> None:
         """Test that package versions are cached."""
         mock_response = Mock()
         mock_response.status_code = 200
@@ -250,7 +236,7 @@ Program.cs(8,1): error CS1002: ; expected
         # Mock build and run
         mock_docker_manager.execute_command.side_effect = [
             ("Build succeeded", "", 0),  # Build
-            ("Hello World", "", 0),       # Run
+            ("Hello World", "", 0),  # Run
         ]
 
         result = await executor.run_snippet(
@@ -280,7 +266,11 @@ Program.cs(8,1): error CS1002: ; expected
 
         # Mock build failure
         mock_docker_manager.execute_command.side_effect = [
-            ("", "Program.cs(1,1): error CS0103: The name 'InvalidCode' does not exist", 1),  # Build fails
+            (
+                "",
+                "Program.cs(1,1): error CS0103: The name 'InvalidCode' does not exist",
+                1,
+            ),  # Build fails
         ]
 
         result = await executor.run_snippet(
@@ -310,7 +300,7 @@ Program.cs(8,1): error CS1002: ; expected
         # Mock build and run
         mock_docker_manager.execute_command.side_effect = [
             ("Build succeeded", "", 0),  # Build
-            ("JSON output", "", 0),       # Run
+            ("JSON output", "", 0),  # Run
         ]
 
         result = await executor.run_snippet(
@@ -339,11 +329,11 @@ Program.cs(8,1): error CS1002: ; expected
         # Mock timeout during execution
         mock_docker_manager.execute_command.side_effect = [
             ("Build succeeded", "", 0),  # Build succeeds
-            APIError("Timeout"),          # Run times out
+            APIError("Timeout"),  # Run times out
         ]
 
         result = await executor.run_snippet(
-            code='while(true) { }',
+            code="while(true) { }",
             dotnet_version=DotNetVersion.V8,
             packages=[],
             timeout=1,

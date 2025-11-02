@@ -455,7 +455,9 @@ class DockerContainerManager:
             # Update activity tracking
             self._update_activity(container_id)
         except APIError as e:
-            raise APIError(f"Failed to write file {dest_path} in container {container_id}: {e}") from e
+            raise APIError(
+                f"Failed to write file {dest_path} in container {container_id}: {e}"
+            ) from e
 
     def read_file(self, container_id: str, path: str) -> bytes:
         """Read file from container using base64 encoding.
@@ -540,9 +542,7 @@ class DockerContainerManager:
         Returns:
             True if file exists, False otherwise
         """
-        _, _, exit_code = self.execute_command(
-            container_id, ["test", "-f", path], timeout=5
-        )
+        _, _, exit_code = self.execute_command(container_id, ["test", "-f", path], timeout=5)
         return exit_code == 0
 
     def list_files(self, container_id: str, path: str) -> list[str]:
@@ -555,9 +555,7 @@ class DockerContainerManager:
         Returns:
             List of file names (empty list if directory doesn't exist)
         """
-        stdout, _, exit_code = self.execute_command(
-            container_id, ["ls", "-1", path], timeout=10
-        )
+        stdout, _, exit_code = self.execute_command(container_id, ["ls", "-1", path], timeout=10)
 
         if exit_code != 0:
             return []
