@@ -807,7 +807,8 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
                     dotnet_version=input_data.dotnet_version.value,
                     ports=port_info if port_info else None,  # type: ignore[arg-type]
                     urls=urls if urls else None,
-                    status="already_running",
+                    status="success",
+                    message="Container already running",
                 )
             else:
                 data: dict[str, Any] = {
@@ -1149,10 +1150,13 @@ async def read_file(arguments: dict[str, Any]) -> list[TextContent]:
 
                 response = f"# File Content ✓\n\n**Project:** {input_data.project_id}\n**Path:** `{input_data.path}`\n\n```{lang}\n{content}\n```"
             else:
-                response = fmt.format_human_readable_response(
+                response = fmt.format_json_response(
                     status="success",
-                    output=content,
-                    project_id=input_data.project_id,
+                    data={
+                        "project_id": input_data.project_id,
+                        "path": input_data.path,
+                        "content": content,
+                    },
                 )
 
             return [TextContent(type="text", text=response)]
