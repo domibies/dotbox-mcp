@@ -592,3 +592,54 @@ class TestMCPIntegration:
                     "success",
                     "error",
                 ], f"{tool_name}: Invalid status value"
+
+    async def test_read_file_json_structure(self, mock_docker_client: MagicMock) -> None:
+        """Regression test: read_file returns proper JSON structure with all required fields."""
+        # Setup mock container
+        mock_container = MagicMock()
+        mock_container.id = "test123"
+        mock_container.name = "test-container"
+        mock_container.status = "running"
+        mock_container.labels = {"managed-by": "dotbox-mcp", "project-id": "test-proj"}
+
+        # Mock containers.list to return our container (for get_container_by_project_id)
+        mock_docker_client.containers.list.return_value = [mock_container]
+
+        # Mock containers.get to return our container (for file operations)
+        mock_docker_client.containers.get.return_value = mock_container
+
+        # Mock file read - must return base64-encoded content
+        # exec_run returns an object with .output and .exit_code attributes
+        import base64
+
+        content = b"Hello, World!"
+        base64_content = base64.b64encode(content)
+
+        mock_result = MagicMock()
+        mock_result.exit_code = 0
+        mock_result.output = base64_content
+        mock_container.exec_run.return_value = mock_result
+
+        with patch("src.docker_manager.docker.from_env", return_value=mock_docker_client):
+            # Reset global state
+            import src.server
+
+            src.server.docker_manager = None
+            src.server.executor = None
+            src.server.formatter = None
+
+            # Import tool handler
+            from src.server import read_file
+
+            # Execute with JSON format
+            result = await read_file(
+                {"project_id": "test-proj", "path": "/workspace/test.cs", "response_format": "json"}
+            )
+
+            # Parse and validate JSON structure
+            parsed = json.loads(result[0].text)
+            assert parsed["status"] == "success", "Status should be success"
+            assert "data" in parsed, "Missing data field in JSON response"
+            assert parsed["data"]["project_id"] == "test-proj", "Missing or incorrect project_id"
+            assert parsed["data"]["path"] == "/workspace/test.cs", "Missing or incorrect path"
+            assert parsed["data"]["content"] == "Hello, World!", "Missing or incorrect content"
