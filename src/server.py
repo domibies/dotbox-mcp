@@ -771,19 +771,35 @@ async def start_container(arguments: dict[str, Any]) -> list[TextContent]:
                     port_info = container.ports
                     break
 
-        # Build output message
-        output_msg = f"Started container for project '{input_data.project_id}'"
-        if port_info:
-            port_list = [f"{container_port} → {host_port}" for container_port, host_port in port_info.items()]
-            output_msg += f"\nPorts: {', '.join(port_list)}"
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            # Build URLs if ports are mapped
+            urls = []
+            if port_info:
+                for container_port, host_port in port_info.items():
+                    urls.append(f"http://localhost:{host_port}")
 
-        response = fmt.format_human_readable_response(
-            status="success",
-            output=output_msg,
-            container_id=container_id,
-            project_id=input_data.project_id,  # type: ignore[arg-type]
-            dotnet_version=input_data.dotnet_version.value,
-        )
+            response = fmt.format_container_info_markdown(
+                project_id=input_data.project_id,  # type: ignore[arg-type]
+                container_id=container_id,
+                dotnet_version=input_data.dotnet_version.value,
+                ports=port_info if port_info else None,
+                urls=urls if urls else None,
+                status="success",
+            )
+        else:  # JSON format
+            output_msg = f"Started container for project '{input_data.project_id}'"
+            if port_info:
+                port_list = [f"{container_port} → {host_port}" for container_port, host_port in port_info.items()]
+                output_msg += f"\nPorts: {', '.join(port_list)}"
+
+            response = fmt.format_human_readable_response(
+                status="success",
+                output=output_msg,
+                container_id=container_id,
+                project_id=input_data.project_id,  # type: ignore[arg-type]
+                dotnet_version=input_data.dotnet_version.value,
+            )
 
         return [TextContent(type="text", text=response)]
 
@@ -1270,13 +1286,22 @@ async def run_background(arguments: dict[str, Any]) -> list[TextContent]:
             import asyncio
             await asyncio.sleep(input_data.wait_for_ready)
 
-        # Check if process started successfully
-        response = fmt.format_human_readable_response(
-            status="success",
-            output=f"Process started in background: {' '.join(input_data.command)}\nWaited {input_data.wait_for_ready} seconds for startup.\nUse dotnet_get_logs to check process output.",
-            project_id=input_data.project_id,
-            container_id=container_id,
-        )
+        # Format response based on requested format
+        if input_data.response_format == ResponseFormat.MARKDOWN:
+            message = f"Process started: `{' '.join(input_data.command)}`\n\nWaited {input_data.wait_for_ready}s for startup. Use `dotnet_get_logs` to check output."
+            response = fmt.format_container_info_markdown(
+                project_id=input_data.project_id,
+                container_id=container_id,
+                status="success",
+                message=message,
+            )
+        else:  # JSON format
+            response = fmt.format_human_readable_response(
+                status="success",
+                output=f"Process started in background: {' '.join(input_data.command)}\nWaited {input_data.wait_for_ready} seconds for startup.\nUse dotnet_get_logs to check process output.",
+                project_id=input_data.project_id,
+                container_id=container_id,
+            )
 
         return [TextContent(type="text", text=response)]
 
