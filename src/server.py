@@ -86,6 +86,8 @@ Container is automatically cleaned up after execution.
 - Web servers/APIs (use project workflow with dotbox-mcp:dotnet_run_background)
 - Persistent containers (use dotbox-mcp:dotnet_start_container)
 
+**NuGet packages:** Search web for recent API examples before implementing package-based functionality.
+
 **Note:** Show code snippets inline to users before tool calls (UI collapses tool output).
 **Note:** When presenting results, summarize output relevant to the user's question.
 
@@ -219,6 +221,8 @@ Create or update files in a running container for project development.
 - One-shot code execution (use dotbox-mcp:dotnet_execute_snippet)
 - Standard project creation (prefer `dotnet new` via dotbox-mcp:dotnet_execute_command)
 - When container doesn't exist (start container first)
+
+**NuGet packages:** Search web for recent API examples before implementing package-based functionality.
 
 **Note:** Show code snippets inline before tool calls (UI collapses tool output).
 
