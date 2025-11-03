@@ -202,7 +202,23 @@ fi
 
 echo -e "${GREEN}✓${NC} Config updated"
 
-# 9. Show security notice
+# 9. Pull Docker images
+echo ""
+echo "Pulling Docker images (~1GB total, may take a few minutes)..."
+docker pull ghcr.io/domibies/dotbox-mcp:latest > /dev/null 2>&1 &
+PULL_SERVER_PID=$!
+docker pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:8 > /dev/null 2>&1 &
+PULL_8_PID=$!
+docker pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:9 > /dev/null 2>&1 &
+PULL_9_PID=$!
+docker pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:10-rc2 > /dev/null 2>&1 &
+PULL_10_PID=$!
+
+# Wait for all pulls to complete
+wait $PULL_SERVER_PID $PULL_8_PID $PULL_9_PID $PULL_10_PID
+echo -e "${GREEN}✓${NC} Docker images pulled"
+
+# 10. Show security notice
 echo ""
 echo -e "${YELLOW}⚠️  Security Notice:${NC}"
 echo "  Docker socket access grants root-equivalent privileges."
@@ -210,12 +226,10 @@ echo "  dotbox-mcp creates isolated .NET containers for code execution."
 echo "  Review code: https://github.com/domibies/dotbox-mcp"
 echo ""
 
-# 10. Success message
+# 11. Success message
 echo -e "${GREEN}✓ dotbox-mcp installed successfully!${NC}"
 echo ""
 echo "Next steps:"
 echo "  1. Restart Claude Desktop"
 echo "  2. Try: 'Execute this C# code: Console.WriteLine(DateTime.Now);'"
-echo ""
-echo "Note: First run will pull Docker images (~1GB total)"
 echo ""

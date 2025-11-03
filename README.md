@@ -97,7 +97,7 @@ If you prefer to install manually:
 1. Restart Claude Desktop
 2. Try asking Claude: *"Execute this C# code: Console.WriteLine(DateTime.Now);"*
 
-**Note:** First run will pull Docker images (~1GB total) and may take 1-2 minutes. Your first request might fail or timeout while images are downloading - simply try again after a minute. This only happens once; subsequent runs start instantly.
+**Note for manual installation:** If you installed manually (not via the automatic installer), your first request might fail or timeout while Docker images are downloading (~1GB, 1-2 minutes). Simply wait a minute, restart Claude Desktop, and try again. The automatic installer pulls images during installation to avoid this delay.
 
 ### Troubleshooting
 
