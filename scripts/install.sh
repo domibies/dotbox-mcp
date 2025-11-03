@@ -71,8 +71,21 @@ echo -e "${GREEN}✓${NC} Docker running"
 # 4. Claude Desktop config path (macOS)
 CONFIG_PATH="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 
-# 5. Detect docker GID for non-root execution
-DOCKER_GID=$(stat -f %g /var/run/docker.sock)
+# 5. Resolve Docker socket path (handles symlinks on macOS)
+if [ -L /var/run/docker.sock ]; then
+    # Symlink - resolve to real path
+    DOCKER_SOCK_PATH=$(readlink /var/run/docker.sock)
+    # Handle relative symlinks
+    if [[ "$DOCKER_SOCK_PATH" != /* ]]; then
+        DOCKER_SOCK_PATH="/var/run/$DOCKER_SOCK_PATH"
+    fi
+else
+    DOCKER_SOCK_PATH="/var/run/docker.sock"
+fi
+
+# Docker GID: On macOS use root (0) since there's no docker group
+# Inside the container, the mounted socket will be root:root
+DOCKER_GID=0
 
 # 6. Check if already installed (idempotency)
 if [ -r "$CONFIG_PATH" ]; then
@@ -119,6 +132,7 @@ fi
 echo "Updating Claude Desktop config..."
 export CONFIG_PATH
 export DOCKER_GID
+export DOCKER_SOCK_PATH
 $PYTHON - <<'EOF'
 import json
 import os
@@ -126,6 +140,7 @@ import sys
 
 config_path = os.environ['CONFIG_PATH']
 docker_gid = os.environ['DOCKER_GID']
+docker_sock_path = os.environ['DOCKER_SOCK_PATH']
 
 # Load or create config
 if os.path.exists(config_path):
@@ -154,7 +169,7 @@ config["mcpServers"]["dotbox-mcp"] = {
         "--user",
         f"1000:{docker_gid}",
         "-v",
-        "/var/run/docker.sock:/var/run/docker.sock",
+        f"{docker_sock_path}:/var/run/docker.sock",
         "ghcr.io/domibies/dotbox-mcp:latest"
     ]
 }
