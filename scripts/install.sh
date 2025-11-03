@@ -114,7 +114,7 @@ PYEOF
         if [ "${1:-}" != "--force" ]; then
             echo -e "${YELLOW}✓${NC} dotbox-mcp already installed"
             echo ""
-            read -p "Do you want to reinstall and update the configuration? (y/N): " -n 1 -r
+            read -p "Do you want to reinstall and update the configuration? (y/N): " -n 1 -r </dev/tty
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                 echo "Installation cancelled. To reinstall later, run with --force flag."
