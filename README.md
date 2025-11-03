@@ -2,7 +2,9 @@
 
 A Model Context Protocol (MCP) server that enables LLMs to execute .NET workloads in isolated Docker containers. Write C# code, build projects, host web APIs, and test across multiple .NET versions - all from within Claude Desktop.
 
-Built with FastMCP (Python) and Docker SDK.
+Built with FastMCP (Python) and Docker SDK. **🍎 (Currently tested only on macOS)**
+
+> ⚠️ **Important (2025-11-03 08:00):** If you installed before this date and are experiencing Docker permission errors, please reinstall using the automatic installer or update your manual config to use `"--user", "1000:0"` instead of detecting the Docker GID. See [Manual Installation](#manual-installation) for details.
 
 ## What is dotbox-mcp?
 
@@ -61,12 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/domibies/dotbox-mcp/main/scripts/in
 
 If you prefer to install manually:
 
-1. **Detect your docker GID:**
-   ```bash
-   stat -f %g /var/run/docker.sock
-   ```
-
-2. **Edit Claude Desktop config** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+1. **Edit Claude Desktop config** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
    ```json
    {
      "mcpServers": {
@@ -79,7 +76,7 @@ If you prefer to install manually:
            "--add-host",
            "host.docker.internal:host-gateway",
            "--user",
-           "1000:YOUR_DOCKER_GID",
+           "1000:0",
            "-v",
            "/var/run/docker.sock:/var/run/docker.sock",
            "ghcr.io/domibies/dotbox-mcp:latest"
@@ -89,11 +86,11 @@ If you prefer to install manually:
    }
    ```
 
-   Replace `YOUR_DOCKER_GID` with the number from step 1.
+   **Notes:**
+   - The `--user 1000:0` runs the container as non-root user with root group access (required for Docker socket on macOS)
+   - The `--add-host` flag enables the MCP server to access web APIs hosted in sandbox containers via the host machine's port mappings
 
-   **Note:** The `--add-host` flag enables the MCP server (running in a container) to access web APIs hosted in sandbox containers via the host machine's port mappings.
-
-3. **Restart Claude Desktop**
+2. **Restart Claude Desktop**
 
 ### After Installation
 
