@@ -14,7 +14,8 @@
         {"type": "chore", "section": "Miscellaneous", "hidden": true},
         {"type": "test", "section": "Tests", "hidden": true},
         {"type": "ci", "section": "CI/CD", "hidden": true}
-      ]
+      ],
+      "release-notes-header": "## Overview\n\n**dotbox-mcp** is an MCP server that enables Claude and other LLM agents to execute .NET code in isolated Docker containers. This release marks the first stable 1.0 version with production-ready features.\n\n## Key Features\n\n- Execute C# snippets and full .NET projects (.NET 8, 9, 10 RC2)\n- Host web APIs with accessible endpoints\n- Test NuGet packages in isolated environments\n- Cross-platform support (macOS, Linux, Windows)\n\n---\n\n## What's Changed\n"
     }
   }
 }
