@@ -25,7 +25,7 @@ jobs:
         dotnet_version: ['8', '9', '10-rc2']
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
