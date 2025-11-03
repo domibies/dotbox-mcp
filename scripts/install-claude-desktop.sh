@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e -u -o pipefail
 
-# dotbox-mcp installer for macOS
-# Usage: curl -fsSL https://raw.githubusercontent.com/domibies/dotbox-mcp/main/scripts/install.sh | bash
+# dotbox-mcp installer for macOS (Claude Desktop)
+# Usage: curl -fsSL https://raw.githubusercontent.com/domibies/dotbox-mcp/main/scripts/install-claude-desktop.sh | bash
 
 # Colors
 RED='\033[0;31m'
@@ -68,10 +68,42 @@ fi
 
 echo -e "${GREEN}✓${NC} Docker running"
 
-# 4. Claude Desktop config path (macOS)
+# 4. Check if Claude Desktop is installed
+CLAUDE_DESKTOP_PATHS=(
+    "/Applications/Claude.app"
+    "$HOME/Applications/Claude.app"
+)
+
+CLAUDE_DESKTOP_INSTALLED=false
+for path in "${CLAUDE_DESKTOP_PATHS[@]}"; do
+    if [ -d "$path" ]; then
+        CLAUDE_DESKTOP_INSTALLED=true
+        break
+    fi
+done
+
+if [ "$CLAUDE_DESKTOP_INSTALLED" = false ]; then
+    echo -e "${YELLOW}⚠️  Claude Desktop not found${NC}"
+    echo ""
+    echo "Install Claude Desktop from:"
+    echo "  https://claude.ai/download"
+    echo ""
+    echo "You can continue with this installer, but you will need Claude Desktop to use dotbox-mcp."
+    echo ""
+    read -p "Continue anyway? (y/N): " -n 1 -r </dev/tty
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Installation cancelled."
+        exit 0
+    fi
+else
+    echo -e "${GREEN}✓${NC} Claude Desktop found"
+fi
+
+# 5. Claude Desktop config path (macOS)
 CONFIG_PATH="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 
-# 5. Resolve Docker socket path (handles symlinks on macOS)
+# 6. Resolve Docker socket path (handles symlinks on macOS)
 if [ -L /var/run/docker.sock ]; then
     # Symlink - resolve to real path
     DOCKER_SOCK_PATH=$(readlink /var/run/docker.sock)
@@ -87,7 +119,7 @@ fi
 # Inside the container, the mounted socket will be root:root
 DOCKER_GID=0
 
-# 6. Check if already installed (idempotency)
+# 7. Check if already installed (idempotency)
 if [ -r "$CONFIG_PATH" ]; then
     export CHECK_CONFIG_PATH="$CONFIG_PATH"
     if "$PYTHON" - <<'PYEOF'
@@ -125,7 +157,7 @@ PYEOF
     fi
 fi
 
-# 7. Backup existing config
+# 8. Backup existing config
 mkdir -p "$(dirname "$CONFIG_PATH")"
 if [ -f "$CONFIG_PATH" ]; then
     BACKUP_PATH="$CONFIG_PATH.backup.$(date +%Y%m%d_%H%M%S)"
@@ -133,7 +165,7 @@ if [ -f "$CONFIG_PATH" ]; then
     echo -e "${GREEN}✓${NC} Backed up config to: $(basename "$BACKUP_PATH")"
 fi
 
-# 8. Update config using Python (preserves other MCPs)
+# 9. Update config using Python (preserves other MCPs)
 echo "Updating Claude Desktop config..."
 export CONFIG_PATH
 export DOCKER_GID
@@ -202,7 +234,7 @@ fi
 
 echo -e "${GREEN}✓${NC} Config updated"
 
-# 9. Pull Docker images
+# 10. Pull Docker images
 echo ""
 echo "Pulling Docker images (~1GB total, may take a few minutes)..."
 docker pull ghcr.io/domibies/dotbox-mcp:latest > /dev/null 2>&1 &
@@ -218,7 +250,7 @@ PULL_10_PID=$!
 wait $PULL_SERVER_PID $PULL_8_PID $PULL_9_PID $PULL_10_PID
 echo -e "${GREEN}✓${NC} Docker images pulled"
 
-# 10. Show security notice
+# 11. Show security notice
 echo ""
 echo -e "${YELLOW}⚠️  Security Notice:${NC}"
 echo "  Docker socket access grants root-equivalent privileges."
@@ -226,7 +258,7 @@ echo "  dotbox-mcp creates isolated .NET containers for code execution."
 echo "  Review code: https://github.com/domibies/dotbox-mcp"
 echo ""
 
-# 11. Success message
+# 12. Success message
 echo -e "${GREEN}✓ dotbox-mcp installed successfully!${NC}"
 echo ""
 echo "Next steps:"
