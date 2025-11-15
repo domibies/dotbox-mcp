@@ -103,10 +103,10 @@ jobs:
           cd docker
           docker build -f dotnet-9.dockerfile -t dotnet-sandbox:9 .
 
-      - name: Build .NET 10 RC2 Docker image
+      - name: Build .NET 10 Docker image
         run: |
           cd docker
-          docker build -f dotnet-10-rc2.dockerfile -t dotnet-sandbox:10-rc2 .
+          docker build -f dotnet-10.dockerfile -t dotnet-sandbox:10 .
 
       - name: Verify Docker images
         run: |
