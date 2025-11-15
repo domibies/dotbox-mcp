@@ -199,7 +199,7 @@ class DotNetExecutor:
         mapping = {
             DotNetVersion.V8: "net8.0",
             DotNetVersion.V9: "net9.0",
-            DotNetVersion.V10_RC2: "net10.0",
+            DotNetVersion.V10: "net10.0",
         }
         return mapping[version]
 

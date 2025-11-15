@@ -54,7 +54,7 @@ class DockerContainerManager:
         """Get full image name with registry prefix.
 
         Args:
-            dotnet_version: .NET version (8, 9, 10-rc2)
+            dotnet_version: .NET version (8, 9, 10)
 
         Returns:
             Full image name (e.g., "ghcr.io/.../dotnet-sandbox:8")
@@ -70,7 +70,7 @@ class DockerContainerManager:
         """Ensure sandbox image exists locally, pulling if necessary.
 
         Args:
-            dotnet_version: .NET version (8, 9, 10-rc2)
+            dotnet_version: .NET version (8, 9, 10)
 
         Raises:
             RuntimeError: If image cannot be pulled or found
@@ -113,7 +113,7 @@ class DockerContainerManager:
         """Create and start a container without volume mounting (files live in container only).
 
         Args:
-            dotnet_version: .NET version (8, 9, 10-rc2)
+            dotnet_version: .NET version (8, 9, 10)
             project_id: Project identifier for labeling
             port_mapping: Optional port mapping {container_port: host_port}
 
