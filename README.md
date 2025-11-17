@@ -50,7 +50,7 @@ This MCP server is designed around **agent-centric workflows** - providing compl
 
 - **Quick C# Snippets**: Execute C# code instantly without project setup
 - **Full Project Management**: Create, build, and run complete .NET projects (console apps, web APIs, class libraries)
-- **Multi-Version Testing**: Compare code behavior across .NET 8, 9, and 10 RC2 in parallel
+- **Multi-Version Testing**: Compare code behavior across .NET 8, 9, and 10 in parallel
 - **Web API Hosting**: Start web servers in containers with external port mapping for real HTTP testing
 - **Resource Management**: Automatic container cleanup, timeout handling, and resource limits
 

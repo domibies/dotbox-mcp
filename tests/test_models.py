@@ -28,13 +28,13 @@ class TestDotNetVersion:
         """Test that enum has correct version values."""
         assert DotNetVersion.V8.value == "8"
         assert DotNetVersion.V9.value == "9"
-        assert DotNetVersion.V10_RC2.value == "10-rc2"
+        assert DotNetVersion.V10.value == "10"
 
     def test_can_create_from_string(self) -> None:
         """Test creating enum from string."""
         assert DotNetVersion("8") == DotNetVersion.V8
         assert DotNetVersion("9") == DotNetVersion.V9
-        assert DotNetVersion("10-rc2") == DotNetVersion.V10_RC2
+        assert DotNetVersion("10") == DotNetVersion.V10
 
 
 class TestDetailLevel:
@@ -157,7 +157,7 @@ class TestExecuteSnippetInput:
     def test_dotnet_version_from_string(self) -> None:
         """Test that dotnet_version accepts string values (for MCP JSON)."""
         # Test each version as string (simulating MCP tool call from JSON)
-        for version_str in ["8", "9", "10-rc2"]:
+        for version_str in ["8", "9", "10"]:
             input_data = ExecuteSnippetInput(
                 code="Console.WriteLine();",
                 dotnet_version=version_str,  # type: ignore[arg-type]
@@ -210,7 +210,7 @@ class TestExecuteSnippetInput:
         # Check string variant
         str_variant = next((v for v in version_schema["anyOf"] if v["type"] == "string"), None)
         assert str_variant is not None
-        assert set(str_variant["enum"]) == {"8", "9", "10-rc2"}
+        assert set(str_variant["enum"]) == {"8", "9", "10"}
 
 
 class TestStartContainerInput:
@@ -253,9 +253,9 @@ class TestStartContainerInput:
         assert input_v9.project_id is not None
         assert input_v9.project_id.startswith("dotnet9-proj-")
 
-        input_v10 = StartContainerInput(dotnet_version=DotNetVersion.V10_RC2)
+        input_v10 = StartContainerInput(dotnet_version=DotNetVersion.V10)
         assert input_v10.project_id is not None
-        assert input_v10.project_id.startswith("dotnet10-rc2-proj-")
+        assert input_v10.project_id.startswith("dotnet10-proj-")
 
     def test_auto_generated_project_id_is_unique(self) -> None:
         """Test that auto-generated project_ids are unique."""

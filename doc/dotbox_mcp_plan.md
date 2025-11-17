@@ -4,7 +4,7 @@
 
 An MCP server that manages Docker containers running .NET workloads, enabling Claude to:
 - Execute C# code snippets and full projects
-- Test different .NET versions (8, 9, 10 RC2)
+- Test different .NET versions (8, 9, 10)
 - Host HTTP endpoints for API testing
 - Handle file uploads/downloads
 - Manage container lifecycle
@@ -69,7 +69,7 @@ An MCP server that manages Docker containers running .NET workloads, enabling Cl
 **Purpose**: Execute a C# code snippet quickly without project setup
 **Input**:
 - `code: str` - C# code to execute (supports top-level statements)
-- `dotnet_version: "8" | "9" | "10-rc2"` - .NET version to use
+- `dotnet_version: "8" | "9" | "10"` - .NET version to use
 - `packages: List[str]` - NuGet packages to include (e.g., ["Newtonsoft.Json"])
 - `detail_level: "concise" | "full"` - Output detail level
 **Output**: Execution result (stdout, stderr, exit code)
@@ -80,7 +80,7 @@ An MCP server that manages Docker containers running .NET workloads, enabling Cl
 **Input**:
 - `project_name: str` - Name for the project
 - `template: "console" | "webapi" | "classlib" | "worker"` - Project template
-- `dotnet_version: "8" | "9" | "10-rc2"` - .NET version
+- `dotnet_version: "8" | "9" | "10"` - .NET version
 - `packages: List[str]` - Initial packages to add
 **Output**: Project ID, file structure, next steps
 **Annotations**: readOnlyHint=false, destructiveHint=false, idempotentHint=false
@@ -338,7 +338,7 @@ from typing import Optional, List, Dict
 class DotNetVersion(str, Enum):
     V8 = "8"
     V9 = "9"
-    V10_RC2 = "10-rc2"
+    V10 = "10"
 
 class ProjectTemplate(str, Enum):
     CONSOLE = "console"
@@ -557,8 +557,8 @@ WORKDIR /workspace
 RUN adduser -D -u 1000 sandbox
 USER sandbox
 
-# dotnet-sandbox-10-rc2.dockerfile
-FROM mcr.microsoft.com/dotnet/sdk:10.0-rc.2-alpine
+# dotnet-10.dockerfile
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine
 RUN apk add --no-cache bash curl
 WORKDIR /workspace
 RUN adduser -D -u 1000 sandbox
@@ -571,7 +571,7 @@ USER sandbox
 #!/bin/bash
 docker build -t dotnet-sandbox:8 -f dotnet-sandbox-8.dockerfile .
 docker build -t dotnet-sandbox:9 -f dotnet-sandbox-9.dockerfile .
-docker build -t dotnet-sandbox:10-rc2 -f dotnet-sandbox-10-rc2.dockerfile .
+docker build -t dotnet-sandbox:10 -f dotnet-10.dockerfile .
 ```
 
 ---
@@ -594,7 +594,7 @@ dotbox_mcp/
 ├── docker/
 │   ├── dotnet-8.dockerfile
 │   ├── dotnet-9.dockerfile
-│   ├── dotnet-10-rc2.dockerfile
+│   ├── dotnet-10.dockerfile
 │   └── build-images.sh
 ├── tests/
 │   ├── test_executor.py

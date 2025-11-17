@@ -243,7 +243,7 @@ docker pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:8 > /dev/null 2>&1 &
 PULL_8_PID=$!
 docker pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:9 > /dev/null 2>&1 &
 PULL_9_PID=$!
-docker pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:10-rc2 > /dev/null 2>&1 &
+docker pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:10 > /dev/null 2>&1 &
 PULL_10_PID=$!
 
 # Wait for all pulls to complete

@@ -4,7 +4,7 @@ Claude Code guidance for this repository.
 
 ## Project Overview
 
-**dotbox-mcp**: MCP server managing Docker containers for .NET workloads. Enables LLMs to execute C# code, test .NET versions (8, 9, 10 RC2), host HTTP endpoints, manage container lifecycles.
+**dotbox-mcp**: MCP server managing Docker containers for .NET workloads. Enables LLMs to execute C# code, test .NET versions (8, 9, 10), host HTTP endpoints, manage container lifecycles.
 
 - **Language**: Python (FastMCP framework)
 - **Transport**: stdio (Claude Desktop integration)
@@ -78,7 +78,7 @@ src/
 ├── error_enhancer.py   # Error message enhancement
 └── models.py           # Pydantic input/output models
 docker/
-├── dotnet-{8,9,10-rc2}.dockerfile
+├── dotnet-{8,9,10}.dockerfile
 └── build-images.sh
 tests/
 ├── test_*.py           # Unit tests (mocked Docker)
@@ -136,7 +136,7 @@ Hello, World!
 **Sandbox images** (.NET SDK):
 - `dotnet-sandbox:8` - .NET 8 SDK
 - `dotnet-sandbox:9` - .NET 9 SDK
-- `dotnet-sandbox:10-rc2` - .NET 10 RC2 SDK
+- `dotnet-sandbox:10` - .NET 10 SDK
 
 **Server image**:
 - `dotbox-mcp:dev` - MCP server for Docker-based testing
@@ -236,7 +236,7 @@ DEBUG=1 uv run python -m src.server  # With debug logging
 
 **After merge to main** (~5 min):
 - E2E tests with real Docker containers
-- Builds all .NET images (8, 9, 10 RC2)
+- Builds all .NET images (8, 9, 10)
 - Alerts if E2E fails
 
 **Manual trigger**: Run E2E on any branch via `workflow_dispatch`

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:  # Allow manual trigger for security updates
     inputs:
       dotnet_versions:
-        description: '.NET versions to build (comma-separated: 8,9,10-rc2 or "all")'
+        description: '.NET versions to build (comma-separated: 8,9,10 or "all")'
         required: false
         default: 'all'
 
@@ -22,7 +22,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        dotnet_version: ['8', '9', '10-rc2']
+        dotnet_version: ['8', '9', '10']
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5

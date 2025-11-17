@@ -122,7 +122,7 @@ Container is automatically cleaned up after execution.
 **When to use:**
 - Quick C# code testing and prototyping
 - Testing NuGet packages across .NET versions
-- Comparing behavior across .NET 8, 9, and 10 RC2
+- Comparing behavior across .NET 8, 9, and 10
 
 **When NOT to use:**
 - Multi-file projects (use dotbox-mcp:dotnet_start_container + dotbox-mcp:dotnet_write_file workflow)
@@ -135,7 +135,7 @@ Container is automatically cleaned up after execution.
 **Note:** When presenting results, summarize output relevant to the user's question.
 
 **Features:**
-- Supports .NET 8, 9, 10 RC2
+- Supports .NET 8, 9, 10
 - Auto NuGet package resolution (fetches latest stable from NuGet API)
 - Compilation error parsing with actionable suggestions
 - Resource limits and timeouts

@@ -149,19 +149,19 @@ def main():
         print("✓ Switched to DEV mode (uv-based)")
         print(f"  Server: Local source via uv")
         print(f"  Path: {PROJECT_DIR}")
-        print("  Sandbox: Local Docker images (dotnet-sandbox:8/9/10-rc2)")
+        print("  Sandbox: Local Docker images (dotnet-sandbox:8/9/10)")
     elif target_mode == "docker":
         config["mcpServers"]["dotbox-mcp"] = get_docker_config()
         print("✓ Switched to DOCKER mode")
         print("  Server: Local Docker image (dotbox-mcp:dev)")
-        print("  Sandbox: Local Docker images (dotnet-sandbox:8/9/10-rc2)")
+        print("  Sandbox: Local Docker images (dotnet-sandbox:8/9/10)")
         print()
         print("Build images with: ./scripts/build-docker-dev.sh")
     else:  # production
         config["mcpServers"]["dotbox-mcp"] = get_production_config()
         print("✓ Switched to PRODUCTION mode")
         print("  Server: ghcr.io/domibies/dotbox-mcp:latest")
-        print("  Sandbox: ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:8/9/10-rc2")
+        print("  Sandbox: ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:8/9/10")
 
     # Save
     save_config(config)

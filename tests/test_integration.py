@@ -322,7 +322,7 @@ class TestMCPIntegration:
             executor = DotNetExecutor(docker_manager=docker_manager)
 
             # Test each version
-            for version in [DotNetVersion.V8, DotNetVersion.V9, DotNetVersion.V10_RC2]:
+            for version in [DotNetVersion.V8, DotNetVersion.V9, DotNetVersion.V10]:
                 result = await executor.run_snippet(
                     code='Console.WriteLine("Test");',
                     dotnet_version=version,

@@ -65,10 +65,10 @@ class TestDotNetExecutor:
         assert "<TargetFramework>net9.0</TargetFramework>" in csproj
 
     @pytest.mark.asyncio
-    async def test_generate_csproj_dotnet10_rc2(self, executor: DotNetExecutor) -> None:
-        """Test generating .csproj for .NET 10 RC2."""
+    async def test_generate_csproj_dotnet10(self, executor: DotNetExecutor) -> None:
+        """Test generating .csproj for .NET 10."""
         csproj = await executor.generate_csproj(
-            dotnet_version=DotNetVersion.V10_RC2,
+            dotnet_version=DotNetVersion.V10,
             packages=[],
         )
 
@@ -376,4 +376,4 @@ Program.cs(8,1): error CS1002: ; expected
         """Test target framework moniker mapping."""
         assert executor._version_to_tfm(DotNetVersion.V8) == "net8.0"
         assert executor._version_to_tfm(DotNetVersion.V9) == "net9.0"
-        assert executor._version_to_tfm(DotNetVersion.V10_RC2) == "net10.0"
+        assert executor._version_to_tfm(DotNetVersion.V10) == "net10.0"

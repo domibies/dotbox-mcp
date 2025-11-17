@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Type aliases for .NET versions and detail levels
-DotNetVersionLiteral = Literal["8", "9", "10-rc2"]
+DotNetVersionLiteral = Literal["8", "9", "10"]
 DetailLevelLiteral = Literal["concise", "full"]
 
 
@@ -15,7 +15,7 @@ class DotNetVersion(str, Enum):
 
     V8 = "8"
     V9 = "9"
-    V10_RC2 = "10-rc2"
+    V10 = "10"
 
 
 class DetailLevel(str, Enum):
@@ -45,7 +45,7 @@ class ExecuteSnippetInput(BaseModel):
     )
     dotnet_version: DotNetVersion = Field(
         default=DotNetVersion.V8,
-        description=".NET version: 8, 9, or '10-rc2' (accepts integer or string)",
+        description=".NET version: 8, 9, or 10 (accepts integer or string)",
     )
     packages: list[str] = Field(
         default_factory=list,
@@ -88,10 +88,10 @@ class ExecuteSnippetInput(BaseModel):
         schema["properties"]["dotnet_version"] = {
             "anyOf": [
                 {"type": "integer", "enum": [8, 9, 10]},
-                {"type": "string", "enum": ["8", "9", "10-rc2"]},
+                {"type": "string", "enum": ["8", "9", "10"]},
             ],
             "default": "8",
-            "description": ".NET version: 8, 9, or '10-rc2' (accepts integer or string)",
+            "description": ".NET version: 8, 9, or 10 (accepts integer or string)",
         }
         return schema
 
@@ -110,7 +110,7 @@ class StartContainerInput(BaseModel):
     )
     dotnet_version: DotNetVersion = Field(
         default=DotNetVersion.V8,
-        description=".NET version: 8, 9, or '10-rc2' (accepts integer or string)",
+        description=".NET version: 8, 9, or 10 (accepts integer or string)",
     )
     ports: dict[int, int] | None = Field(
         default=None,
@@ -246,10 +246,10 @@ class StartContainerInput(BaseModel):
         schema["properties"]["dotnet_version"] = {
             "anyOf": [
                 {"type": "integer", "enum": [8, 9, 10]},
-                {"type": "string", "enum": ["8", "9", "10-rc2"]},
+                {"type": "string", "enum": ["8", "9", "10"]},
             ],
             "default": "8",
-            "description": ".NET version: 8, 9, or '10-rc2' (accepts integer or string)",
+            "description": ".NET version: 8, 9, or 10 (accepts integer or string)",
         }
 
         # Override ports schema to accept:
