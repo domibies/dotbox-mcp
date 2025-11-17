@@ -18,8 +18,9 @@ from src.models import DetailLevel, DotNetVersion
 
 
 @pytest.fixture(scope="function")
-def docker_manager() -> DockerContainerManager:
+def docker_manager(monkeypatch: pytest.MonkeyPatch) -> DockerContainerManager:
     """Create a real DockerContainerManager for E2E tests."""
+    monkeypatch.setenv("DOTBOX_SANDBOX_REGISTRY", "local")
     return DockerContainerManager()
 
 

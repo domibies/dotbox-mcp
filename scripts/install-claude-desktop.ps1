@@ -186,7 +186,7 @@ $jobs = @(
     Start-Job -ScriptBlock { & $using:dockerExePath pull ghcr.io/domibies/dotbox-mcp:latest 2>&1 | Out-Null }
     Start-Job -ScriptBlock { & $using:dockerExePath pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:8 2>&1 | Out-Null }
     Start-Job -ScriptBlock { & $using:dockerExePath pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:9 2>&1 | Out-Null }
-    Start-Job -ScriptBlock { & $using:dockerExePath pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:10-rc2 2>&1 | Out-Null }
+    Start-Job -ScriptBlock { & $using:dockerExePath pull ghcr.io/domibies/dotbox-mcp/dotnet-sandbox:10 2>&1 | Out-Null }
 )
 
 # Wait for all pulls to complete
