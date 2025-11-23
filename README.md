@@ -18,7 +18,14 @@ A Model Context Protocol (MCP) server that enables LLMs to execute .NET workload
 
 Built with FastMCP (Python) and Docker SDK.
 
-> ⚠️ **Important (2025-11-03 08:00):** If you installed before this date and are experiencing Docker permission errors, please reinstall using the automatic installer or update your manual config to use `"--user", "1000:0"` instead of detecting the Docker GID. See [Manual Installation](#manual-installation) for details.
+> 💡 **Tip:** To get the latest version, run the [automatic installer](#quick-start) again. It will update your configuration and pull the latest Docker images.
+
+## What's New in v2.0
+
+**Breaking Changes:**
+- **.NET 10 is now GA (General Availability)** - Upgraded from RC2 to stable release
+- **MCP API change:** `dotnet_version` now accepts `"10"` instead of `"10-rc2"`
+- **Default version changed to .NET 10** - All operations now default to .NET 10 (previously .NET 8)
 
 ## What is dotbox-mcp?
 
