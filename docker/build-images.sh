@@ -11,9 +11,9 @@ docker build -t dotnet-sandbox:8 -f dotnet-8.dockerfile .
 echo "Building dotnet-sandbox:9..."
 docker build -t dotnet-sandbox:9 -f dotnet-9.dockerfile .
 
-# Build .NET 10 RC2 image (using 9.0 as placeholder)
-echo "Building dotnet-sandbox:10-rc2..."
-docker build -t dotnet-sandbox:10-rc2 -f dotnet-10-rc2.dockerfile .
+# Build .NET 10 image
+echo "Building dotnet-sandbox:10..."
+docker build -t dotnet-sandbox:10 -f dotnet-10.dockerfile .
 
 echo "All images built successfully!"
 echo ""

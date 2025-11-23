@@ -2,7 +2,7 @@
 
 These tests require:
 - Docker daemon running
-- Docker images built (dotnet-sandbox:8, dotnet-sandbox:9, dotnet-sandbox:10-rc2)
+- Docker images built (dotnet-sandbox:8, dotnet-sandbox:9, dotnet-sandbox:10)
 
 Run with: pytest -v -m e2e tests/test_e2e_integration.py
 """
@@ -18,8 +18,9 @@ from src.models import DetailLevel, DotNetVersion
 
 
 @pytest.fixture(scope="function")
-def docker_manager() -> DockerContainerManager:
+def docker_manager(monkeypatch: pytest.MonkeyPatch) -> DockerContainerManager:
     """Create a real DockerContainerManager for E2E tests."""
+    monkeypatch.setenv("DOTBOX_SANDBOX_REGISTRY", "local")
     return DockerContainerManager()
 
 
@@ -257,13 +258,13 @@ class TestE2EMultipleVersions:
 
     @pytest.mark.e2e
     @pytest.mark.asyncio
-    async def test_execute_on_dotnet10_rc2(self, executor: DotNetExecutor) -> None:
-        """Test execution on .NET 10 RC2."""
+    async def test_execute_on_dotnet10(self, executor: DotNetExecutor) -> None:
+        """Test execution on .NET 10."""
         code = "Console.WriteLine(System.Environment.Version);"
 
         result = await executor.run_snippet(
             code=code,
-            dotnet_version=DotNetVersion.V10_RC2,
+            dotnet_version=DotNetVersion.V10,
             packages=[],
             timeout=30,
         )
@@ -1561,7 +1562,7 @@ class TestE2EEnhancedTools:
     ) -> None:
         """Verify all tools are available in .NET 8, 9, and 10 images."""
         tools = ["git", "jq", "sqlite3", "tree"]
-        versions = ["8", "9", "10-rc2"]
+        versions = ["8", "9", "10"]
 
         for version in versions:
             container_id = docker_manager.create_container(
