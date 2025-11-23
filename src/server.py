@@ -203,6 +203,12 @@ Creates and starts a long-running container for multi-step operations. Files liv
 - Web API: Start with ports → dotnet new webapi → configure port → run background
 - Console: Start without ports → dotnet new console → run directly
 
+**IMPORTANT - Swagger/Swashbuckle (.NET 9+):**
+- .NET 9 and 10 do NOT include Swashbuckle by default (unlike .NET 8)
+- For Web APIs, ALWAYS add: `dotnet add package Swashbuckle.AspNetCore`
+- MUST also configure Program.cs: Add services (AddEndpointsApiExplorer, AddSwaggerGen) AND middleware (UseSwagger, UseSwaggerUI)
+- Without both steps, Swagger UI will fail
+
 **Returns:**
 - container_id: Docker container ID
 - project_id: Project identifier (auto-generated or provided)

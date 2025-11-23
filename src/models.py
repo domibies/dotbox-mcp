@@ -44,7 +44,7 @@ class ExecuteSnippetInput(BaseModel):
         max_length=50000,
     )
     dotnet_version: DotNetVersion = Field(
-        default=DotNetVersion.V8,
+        default=DotNetVersion.V10,
         description=".NET version: 8, 9, or 10 (accepts integer or string)",
     )
     packages: list[str] = Field(
@@ -90,7 +90,7 @@ class ExecuteSnippetInput(BaseModel):
                 {"type": "integer", "enum": [8, 9, 10]},
                 {"type": "string", "enum": ["8", "9", "10"]},
             ],
-            "default": "8",
+            "default": "10",
             "description": ".NET version: 8, 9, or 10 (accepts integer or string)",
         }
         return schema
@@ -109,7 +109,7 @@ class StartContainerInput(BaseModel):
         max_length=50,
     )
     dotnet_version: DotNetVersion = Field(
-        default=DotNetVersion.V8,
+        default=DotNetVersion.V10,
         description=".NET version: 8, 9, or 10 (accepts integer or string)",
     )
     ports: dict[int, int] | None = Field(
@@ -248,7 +248,7 @@ class StartContainerInput(BaseModel):
                 {"type": "integer", "enum": [8, 9, 10]},
                 {"type": "string", "enum": ["8", "9", "10"]},
             ],
-            "default": "8",
+            "default": "10",
             "description": ".NET version: 8, 9, or 10 (accepts integer or string)",
         }
 
