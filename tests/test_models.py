@@ -59,7 +59,7 @@ class TestExecuteSnippetInput:
         input_data = ExecuteSnippetInput(code='Console.WriteLine("Hello");')
 
         assert input_data.code == 'Console.WriteLine("Hello");'
-        assert input_data.dotnet_version == DotNetVersion.V8  # Default
+        assert input_data.dotnet_version == DotNetVersion.V10  # Default
         assert input_data.packages == []  # Default
         assert input_data.detail_level == DetailLevel.CONCISE  # Default
 
@@ -222,16 +222,16 @@ class TestStartContainerInput:
 
         # Should have auto-generated project_id with format: dotnet{version}-proj-{6chars}
         assert input_data.project_id is not None
-        assert input_data.project_id.startswith("dotnet8-proj-")  # Default is .NET 8
-        assert len(input_data.project_id) == len("dotnet8-proj-abcdef")
-        assert input_data.dotnet_version == DotNetVersion.V8  # Default
+        assert input_data.project_id.startswith("dotnet10-proj-")  # Default is .NET 10
+        assert len(input_data.project_id) == len("dotnet10-proj-abcdef")
+        assert input_data.dotnet_version == DotNetVersion.V10  # Default
 
     def test_valid_minimal_input_with_project_id(self) -> None:
         """Test creating model with explicit project_id."""
         input_data = StartContainerInput(project_id="my-project")
 
         assert input_data.project_id == "my-project"
-        assert input_data.dotnet_version == DotNetVersion.V8  # Default
+        assert input_data.dotnet_version == DotNetVersion.V10  # Default
 
     def test_valid_full_input(self) -> None:
         """Test creating model with all fields."""
